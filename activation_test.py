@@ -1,15 +1,15 @@
 import numpy as np
 import torch
 from torch import nn
+from torch.utils.data import Dataset, TensorDataset, DataLoader
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder, LabelEncoder
-from torch.nn.utils import parameters_to_vector
 from sklearn.metrics import balanced_accuracy_score, accuracy_score
 from sklearn.model_selection import train_test_split, KFold, StratifiedKFold
-from sklearn.compose import ColumnTransformer
 import matplotlib.pyplot as plt
 import random
-from LIPLo import *
+from activations import *
+from networks import *
 from helpers import *
 from typing import Any, Callable
 
@@ -19,7 +19,6 @@ df = pd.read_csv("penguins.csv", index_col = 0)
 activations = [nn.ReLU(), LIPLo(), nn.Tanh()]
 features = ["bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g"] # Must be numeric
 labels = ["sex"] # Must be categorical
-additional_loss_metrics = []
 
 # Cheap hack to avoid having to specify manual names
 names = [activation.__class__.__name__ for activation in activations]
@@ -38,74 +37,22 @@ torch.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-### FUNCTIONS ###
-
-def pd2torch(df : pd.DataFrame, dtype = torch.float32) -> torch.Tensor :
-    
-    return np2torch(df.values, dtype = dtype)
-
-def np2torch(array : np.ndarray, dtype = torch.float32) -> torch.Tensor :
-    
-    converted = torch.tensor(array, dtype = dtype)
-    
-    # Dimension compatibility - converts to scalar array for 2D classification
-    if len(converted.shape) > 1 and converted.shape[1] == 1 :
-        converted = converted.squeeze()
-    
-    return converted
-
-def grad2vector(params) -> torch.Tensor :
-    # Params must be iterable - a list or iterator
-
-    grad_vector = parameters_to_vector([p.grad if p.grad is not None 
-                                        else torch.zeros_like(p) for p in params])
-    
-    return grad_vector
-
-def pd_data_transformer(transform_list : list[tuple[list[str], Any]]) -> ColumnTransformer :
-
-    """Admits a list of tuples, where each tuple represents a list of dataframe column names to be transformed 
-    by the corresponding scaler. Dataframe columns not specified will remain in the dataframe untouched.
-    
-
-    Returns:
-        The desired transformer.
-    """
-    
-    transformers = []
-    
-    for columns, chosen_scaler in transform_list :
-        transformers.append((f"{chosen_scaler.__class__.__name__}", chosen_scaler, columns))
-    
-    return ColumnTransformer(transformers, remainder = "passthrough")
-
-class NeuralNetwork(nn.Module) :
-    def __init__(self, activation) :
-        super().__init__()
-        self.structure = nn.Sequential(
-            nn.Linear(len(features), 5),
-            activation,
-            nn.Linear(5, 10),
-            activation,
-            nn.Linear(10, 5),
-            activation,
-            nn.Linear(5, n_classes)
-        )
-        
-    def forward(self, X) :
-        
-        evaluated = self.structure(X)
-        return evaluated
 
 def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor, 
                Y_train_tensor : torch.Tensor, Y_test_tensor : torch.Tensor, 
-               activation : nn.Module, my_loss = nn.CrossEntropyLoss(),
-               epochs : int = epochs, lr : float = lr) -> tuple[torch.Tensor, torch.Tensor, np.ndarray]: 
+               my_model : nn.Module, my_loss = nn.CrossEntropyLoss(),
+               epochs : int = epochs, lr : float = lr, batch_size : int = -1) -> tuple[torch.Tensor, torch.Tensor, np.ndarray]: 
     
-    my_model = NeuralNetwork(activation)
+    # Use full-batch GD if no batch size given
+    batch_size = len(X_train_tensor) if batch_size == -1 else batch_size
+    
+    training_dataset = TensorDataset(X_train_tensor, Y_train_tensor)
+    training_dataloader = DataLoader(training_dataset, batch_size, shuffle = True )
+    
     optim = torch.optim.Adam(my_model.parameters(), lr=lr)
 
-    nabla = grad2vector(my_model.parameters())
+    nabla = torch.zeros_like(grad2vector(my_model.parameters()))
+    
     gradient_matrix = -1 * torch.ones(size = (epochs, len(nabla)))
     test_loss = -1 * torch.ones(epochs)
     test_predictions = -1 * np.ones(shape = (epochs, len(Y_test_tensor)))
@@ -113,16 +60,23 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
     for i in range(epochs) :
         my_model.train()
         
-        optim.zero_grad()
-    
+        # Stop accumulating gradient
+        nabla = torch.zeros_like(nabla)
+        
+        for X_train_batch, Y_train_batch in training_dataloader :
             
-        predictions = my_model(X_train_tensor)
-        loss = my_loss(predictions, Y_train_tensor)
-        loss.backward()
-        optim.step()
+            optim.zero_grad()
+            predictions = my_model(X_train_batch)
+            loss = my_loss(predictions, Y_train_batch)
+            loss.backward()
+            optim.step()
+            
+            # Average nabla
+            current_nabla = grad2vector(my_model.parameters())
+            nabla += current_nabla
         
         # Recompute nabla after optimisation
-        nabla = grad2vector(my_model.parameters())
+        nabla /= len(training_dataloader)
         
         my_model.eval()
         with torch.no_grad() :
@@ -134,6 +88,7 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
             gradient_matrix[i, :] = nabla
             test_loss[i] = my_loss(test_predictions_torch, Y_test_tensor).item()
             test_predictions[i, :] = outs.reshape(-1)   
+            
         
     # gm = 2D (epochs, parameters), TL = 1D (epochs), TP = 2D (epochs, n_test)
     return (gradient_matrix, test_loss, test_predictions)
@@ -150,11 +105,12 @@ def compatible_torch_transform(transform : Callable, x : pd.Series | pd.DataFram
     
     return converted
         
-def pd_strat_kfold_crossval(df : pd.DataFrame, labels : list[str], activation : nn.Module, 
-                         k : int = 10, epochs : int = epochs, 
-                         desired_X_transforms : list = [], 
-                         desired_Y_transforms : list = [],
-                         fold_sizediff_alarm_threshold : int = 2) -> tuple[torch.Tensor, torch.Tensor, np.ndarray]:
+def pd_strat_kfold_crossval(df : pd.DataFrame, labels : list[str], 
+                            network : nn.Module,
+                            k : int = 10, epochs : int = epochs, 
+                            desired_X_transforms : list = [], 
+                            desired_Y_transforms : list = [],
+                            fold_sizediff_alarm_threshold : int = 2) -> tuple[torch.Tensor, torch.Tensor, np.ndarray]:
     
     skf = StratifiedKFold(n_splits = k, random_state = seed, shuffle = True)
     
@@ -167,7 +123,6 @@ def pd_strat_kfold_crossval(df : pd.DataFrame, labels : list[str], activation : 
     
     X_transformer = pd_data_transformer(desired_X_transforms)
     Y_transformer = pd_data_transformer(desired_Y_transforms)
-
     
     for fold_i, (train_index, test_index) in enumerate( skf.split(X_train, Y_train) ) :
         
@@ -185,7 +140,7 @@ def pd_strat_kfold_crossval(df : pd.DataFrame, labels : list[str], activation : 
             Y_transformer.transform, Y_train.iloc[test_index], dtype = torch.long)
         
         # gradient matrices, test loss
-        gm, tl, tps = experiment(X_train_kf, X_test_kf, Y_train_kf, Y_test_kf, activation, epochs = epochs)
+        gm, tl, tps = experiment(X_train_kf, X_test_kf, Y_train_kf, Y_test_kf, network, epochs = epochs)
         
         
         gradient_matrices.append(gm)
@@ -209,45 +164,30 @@ def pd_strat_kfold_crossval(df : pd.DataFrame, labels : list[str], activation : 
     
     # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
     return gradient_matrices, kfold_loss, kfold_tps
-        
-        
-###### METRICS ####
 
-def torch_grad_var(gradient_matrix, tl = None, tp = None, dim: int = 0,) -> torch.Tensor :
-    
-    return torch.var(gradient_matrix, dim = dim)
-
-def torch_E_log_fprime(gradient_matrix, tl = None, tp = None, dim : int = 0,) -> torch.Tensor :
-    
-    # Avoid negative badness
-    safe = torch.abs(gradient_matrix) + 1e-10
-    
-    logged = torch.log(safe)
-    
-    return torch.mean(logged, dim = dim)
-
-
-def experiment_test_suite(gms, test_loss : torch.Tensor, test_predictions : np.ndarray, dim : int = 0,
+def experiment_test_suite(gms : torch.Tensor, test_loss : torch.Tensor, test_predictions : np.ndarray, over : str = "epochs",
                           test_suite : list[Callable] = [], test_columns : list[str] = [],
                           collapse_on : int = 2, aggfunc : Callable = torch.mean ) -> pd.DataFrame :
     
-    """Perform the function test suite on a designated set of test functions with k-folds, then collapses over the k-folds using
+    """
+    Perform the function test suite on a designated set of test functions with k-folds, then collapses over the k-folds using
     an aggregation function (typically mean) and returns results as a Pandas dataframe.
     
     Params:
         gms : list of gradient matrices over folds (3D: (epochs, parameters, folds))
         test_loss: list of test losses over folds (2D: parameters, folds)
         test_predictions: list of test predictions over folds (2D: end-of-trainings, folds)
-        dim: dimension to check over. Either over epochs (dim=0) or the full parameters (dim=1)
+        over: dimension to check over. Either over "epochs" (dim=1) or the full "params" (dim=0). Can be set to a different axis manually.
         test_suite: list of functions to test on.
         test_columns: names of each test. If no value given, uses the function names.
         collapse_on: the dimension to collapse over. ALWAYS use k=2 (fold index) unless you know what you're doing.
         aggfunc: the aggregation function to collapse a dimension over. Always becomes mean() if number of folds = 1.
 
-
     Returns:
-        Pandas dataframe containing results.
+        result_df: Pandas dataframe containing results.
     """
+    
+    dim = name_index(over)
     
     is_test_data = len(gms.size()) == 2
     
@@ -291,12 +231,10 @@ def experiment_test_suite(gms, test_loss : torch.Tensor, test_predictions : np.n
         
     return result_df    
     
-    
 
 ########################### CODE #############################################
 
 df = df[features + labels].dropna(how = "any").reset_index(drop=True)
-
 
 # Separate numeric columns for different preprocessing
 numeric_columns = df.select_dtypes(include = "number").columns.tolist()
@@ -316,13 +254,17 @@ total_activation_df = pd.DataFrame()
 
 for i, activation in enumerate(activations) : 
 
+    network = ShortNetwork(activation, n_inputs = len(features), n_outputs = n_classes)
+
     activation_name = names[i]
 
-    gms, kfold_loss, tps = pd_strat_kfold_crossval(df_train_transformed, labels ,activation, 
-                            desired_X_transforms = transform_list_x,
-                            desired_Y_transforms= transform_list_y)
-    
-    results_df = experiment_test_suite(gms, kfold_loss, tps, 1, test_suite, ["gradvar", "E_log_f'"] )
+    gms, kfold_loss, tps = pd_strat_kfold_crossval(df_train_transformed, labels, 
+                                                   network,
+                                                   desired_X_transforms = transform_list_x,
+                                                   desired_Y_transforms = transform_list_y)
+                            
+    results_df = experiment_test_suite(gms, kfold_loss, tps, over = "epochs", test_suite = test_suite, 
+                                       test_columns = ["gradvar", "E_log_f'"] )
     
     results_df["activation"] = activation_name
     

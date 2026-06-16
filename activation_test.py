@@ -114,6 +114,8 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
         my_model.train()
         
         optim.zero_grad()
+    
+            
         predictions = my_model(X_train_tensor)
         loss = my_loss(predictions, Y_train_tensor)
         loss.backward()
@@ -133,14 +135,26 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
             test_loss[i] = my_loss(test_predictions_torch, Y_test_tensor).item()
             test_predictions[i, :] = outs.reshape(-1)   
         
-        
+    # gm = 2D (epochs, parameters), TL = 1D (epochs), TP = 2D (epochs, n_test)
     return (gradient_matrix, test_loss, test_predictions)
 
+# Done to avoid code repetition. Need to use np.asarray() to avoid linter crying 
+# and .to_frame() to keep OrdinalEncoder() happy - doesn't like series objects
+def compatible_torch_transform(transform : Callable, x : pd.Series | pd.DataFrame, dtype= torch.float32 ) -> torch.Tensor :
+    
+    x_safe = x.to_frame() if isinstance(x, pd.Series) else x
+    
+    transformation = transform(x_safe)
+    
+    converted = np2torch(np.asarray(transformation), dtype= dtype)
+    
+    return converted
         
-def pd_strat_kfold_crossval(df : pd.DataFrame, label : str, activation : nn.Module, 
+def pd_strat_kfold_crossval(df : pd.DataFrame, labels : list[str], activation : nn.Module, 
                          k : int = 10, epochs : int = epochs, 
                          desired_X_transforms : list = [], 
-                         desired_Y_transforms : list = [] ) -> tuple[torch.Tensor, torch.Tensor, np.ndarray]:
+                         desired_Y_transforms : list = [],
+                         fold_sizediff_alarm_threshold : int = 2) -> tuple[torch.Tensor, torch.Tensor, np.ndarray]:
     
     skf = StratifiedKFold(n_splits = k, random_state = seed, shuffle = True)
     
@@ -148,19 +162,27 @@ def pd_strat_kfold_crossval(df : pd.DataFrame, label : str, activation : nn.Modu
     kfold_loss = torch.ones(size = (epochs, k))
     kfold_tps = [] # Store as list because we don't know original size
 
-    X_train = df.drop(columns = [label])
-    Y_train = df[label]
+    X_train = df.drop(columns = labels)
+    Y_train = df[labels]
     
     X_transformer = pd_data_transformer(desired_X_transforms)
     Y_transformer = pd_data_transformer(desired_Y_transforms)
+
     
     for fold_i, (train_index, test_index) in enumerate( skf.split(X_train, Y_train) ) :
         
-        # Boilerplate. Need to use np.asarray() to avoid linter crying
-        X_train_kf = np2torch( np.asarray(X_transformer.fit_transform( X_train.iloc[train_index] )) )
-        X_test_kf = np2torch( np.asarray(X_transformer.transform( X_train.iloc[test_index] )))
-        Y_train_kf = np2torch( np.asarray(Y_transformer.fit_transform( Y_train.iloc[train_index] )))
-        Y_test_kf = np2torch( np.asarray(Y_transformer.transform( Y_train.iloc[test_index] )))
+        # Boilerplate
+        X_train_kf = compatible_torch_transform(
+            X_transformer.fit_transform, X_train.iloc[train_index], dtype = torch.float32)
+        
+        X_test_kf = compatible_torch_transform(
+            X_transformer.transform, X_train.iloc[test_index], dtype = torch.float32)
+        
+        Y_train_kf = compatible_torch_transform(
+            Y_transformer.fit_transform, Y_train.iloc[train_index], dtype = torch.long)
+        
+        Y_test_kf = compatible_torch_transform(
+            Y_transformer.transform, Y_train.iloc[test_index], dtype = torch.long)
         
         # gradient matrices, test loss
         gm, tl, tps = experiment(X_train_kf, X_test_kf, Y_train_kf, Y_test_kf, activation, epochs = epochs)
@@ -170,19 +192,32 @@ def pd_strat_kfold_crossval(df : pd.DataFrame, label : str, activation : nn.Modu
         kfold_tps.append(tps)
         kfold_loss[:, fold_i] = tl
     
+    # Sometimes we get off-by-one errors in prediction shape, so we must trim
+    n_preds_per_fold = [preds.shape[-1] for preds in kfold_tps]
+    high = max(n_preds_per_fold)
+    low = min(n_preds_per_fold)
+    size_diff = high-low
+    
+    kfold_tps = [tps[:, :low] for tps in kfold_tps]
+    
+    if size_diff >= fold_sizediff_alarm_threshold :
+        print(f"Warning: difference between min-and-max sizes of stratified K-folds exceeds threshold of {fold_sizediff_alarm_threshold}")
+    
     # Get into the right dimension, need kfold dim as the last one (dim=2)
     kfold_tps = np.stack(kfold_tps, axis = 2)
     gradient_matrices = torch.stack(gradient_matrices, dim = 2) # Moves k to the end
+    
+    # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
     return gradient_matrices, kfold_loss, kfold_tps
         
         
 ###### METRICS ####
 
-def torch_grad_var(gradient_matrix, dim: int = 0, tl = None, tp = None) -> torch.Tensor :
+def torch_grad_var(gradient_matrix, tl = None, tp = None, dim: int = 0,) -> torch.Tensor :
     
     return torch.var(gradient_matrix, dim = dim)
 
-def torch_E_log_fprime(gradient_matrix, dim : int = 0, tl = None, tp = None) -> torch.Tensor :
+def torch_E_log_fprime(gradient_matrix, tl = None, tp = None, dim : int = 0,) -> torch.Tensor :
     
     # Avoid negative badness
     safe = torch.abs(gradient_matrix) + 1e-10
@@ -200,32 +235,28 @@ def experiment_test_suite(gms, test_loss : torch.Tensor, test_predictions : np.n
     an aggregation function (typically mean) and returns results as a Pandas dataframe.
     
     Params:
-        gms : list of gradient matrices over folds (3D: (epochs, gradients, folds))
-        test_loss: list of test losses over folds (2D: gradients, folds)
+        gms : list of gradient matrices over folds (3D: (epochs, parameters, folds))
+        test_loss: list of test losses over folds (2D: parameters, folds)
         test_predictions: list of test predictions over folds (2D: end-of-trainings, folds)
-        dim: dimension to check over. Either over epochs (dim=0) or the full gradients (dim=1)
+        dim: dimension to check over. Either over epochs (dim=0) or the full parameters (dim=1)
         test_suite: list of functions to test on.
         test_columns: names of each test. If no value given, uses the function names.
         collapse_on: the dimension to collapse over. ALWAYS use k=2 (fold index) unless you know what you're doing.
-        aggfunc: the aggregation function to collapse a dimension over.
+        aggfunc: the aggregation function to collapse a dimension over. Always becomes mean() if number of folds = 1.
 
 
     Returns:
         Pandas dataframe containing results.
     """
     
-    
-    # dim = 0 = over epochs
-    # dim = 1 = over gradients
-    # dim = 2 = over folds (not recommended since usually want to average over folds)
-    
-    is_test_data = len(gms.size) == 2
+    is_test_data = len(gms.size()) == 2
     
     # If it's test data then there are no folds, so to avoid having to duplicate this function we add a dummy one
     if is_test_data : 
         gms = gms[..., None]
         test_loss = test_loss[..., None]
         test_predictions = test_predictions[..., None]
+        aggfunc = torch.mean # mean(x) = x for singleton x
     
     col_length_diff =  len(test_suite) - len(test_columns) 
     backup_column_names = [func.__class__.__name__ for func in test_suite] # If not enough column names provided
@@ -234,7 +265,7 @@ def experiment_test_suite(gms, test_loss : torch.Tensor, test_predictions : np.n
     if not test_columns :
         test_columns = backup_column_names
     elif col_length_diff >= 0 :
-        test_columns += backup_column_names[len(test_columns):]
+        test_columns += backup_column_names[len(test_columns):] # Add the remainder as test function names
     else : 
         raise ValueError(f"More test col names provided than exist test functions ({len(test_columns)} vs. {len(test_suite)})")
         
@@ -245,14 +276,18 @@ def experiment_test_suite(gms, test_loss : torch.Tensor, test_predictions : np.n
     test_results = []
     
     for test_func in test_suite :
-        result = test_func(gms, test_loss, test_predictions, dim = dim)
+        result = test_func(gms, test_loss, test_predictions, dim = dim).unsqueeze(dim)
+        
         collapsed_result = aggfunc(result, dim = collapse_on )
         data = collapsed_result.view(-1).numpy() # Convert to NumPy so easier to fit as a dataframe
         test_results.append(data)
     
-    test_results = np.asarray(test_results)
+    test_results = np.asarray(test_results).T # Transpose to turn features into columns
     
     result_df = pd.DataFrame(test_results, columns = test_columns)
+    
+    # Name the index based on if we measure epochs or otherwise
+    result_df.index.name = index_name(dim)
         
     return result_df    
     
@@ -260,7 +295,8 @@ def experiment_test_suite(gms, test_loss : torch.Tensor, test_predictions : np.n
 
 ########################### CODE #############################################
 
-df = df[features + labels].dropna(how = "any").reset_index()
+df = df[features + labels].dropna(how = "any").reset_index(drop=True)
+
 
 # Separate numeric columns for different preprocessing
 numeric_columns = df.select_dtypes(include = "number").columns.tolist()
@@ -274,10 +310,23 @@ df_train, df_test = train_test_split(df, test_size = test_size)
 df_train_transformed = df_train.copy()
 df_test_transformed = df_test.copy()
 
-for activation in activations : 
+test_suite = [torch_grad_var, torch_E_log_fprime]
 
-    gms, kfold_loss, tps = pd_strat_kfold_crossval(df_train_transformed, labels[0],activation, 
+total_activation_df = pd.DataFrame()
+
+for i, activation in enumerate(activations) : 
+
+    activation_name = names[i]
+
+    gms, kfold_loss, tps = pd_strat_kfold_crossval(df_train_transformed, labels ,activation, 
                             desired_X_transforms = transform_list_x,
                             desired_Y_transforms= transform_list_y)
     
+    results_df = experiment_test_suite(gms, kfold_loss, tps, 1, test_suite, ["gradvar", "E_log_f'"] )
     
+    results_df["activation"] = activation_name
+    
+    total_activation_df = pd.concat([total_activation_df, results_df])
+    
+
+print(total_activation_df)

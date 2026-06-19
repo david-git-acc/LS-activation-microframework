@@ -5,6 +5,22 @@ import numpy as np
 from torch.nn.utils import parameters_to_vector
 from sklearn.compose import ColumnTransformer
 from typing import Any, Callable
+import matplotlib.pyplot as plt
+from math import ceil
+
+def np2torch(array : np.ndarray, dtype = torch.float32) -> torch.Tensor :
+    
+    converted = torch.tensor(array, dtype = dtype)
+    
+    # Dimension compatibility - converts to scalar array for 2D classification
+    if len(converted.shape) > 1 and converted.shape[1] == 1 :
+        converted = converted.squeeze()
+    
+    return converted
+
+def pd2torch(df : pd.DataFrame, dtype = torch.float32) -> torch.Tensor :
+    
+    return np2torch(df.values, dtype = dtype)
 
 class PandasDataset(Dataset) :
     
@@ -17,8 +33,8 @@ class PandasDataset(Dataset) :
         if isinstance(feature_cols, str) :
             feature_cols = [feature_cols]
         
-        self.data = torch.tensor(df[feature_cols].values, dtype = x_type)
-        self.target = torch.tensor(df[target_cols].values, dtype = y_type)
+        self.data = pd2torch(df[feature_cols], dtype = x_type)
+        self.target = pd2torch(df[target_cols], dtype = y_type)
     
     def __len__(self) -> int :
         return len(self.data)
@@ -28,21 +44,7 @@ class PandasDataset(Dataset) :
         x = self.data[idx]
         y = self.target[idx]
         
-        return (x,y)
-    
-def pd2torch(df : pd.DataFrame, dtype = torch.float32) -> torch.Tensor :
-    
-    return np2torch(df.values, dtype = dtype)
-
-def np2torch(array : np.ndarray, dtype = torch.float32) -> torch.Tensor :
-    
-    converted = torch.tensor(array, dtype = dtype)
-    
-    # Dimension compatibility - converts to scalar array for 2D classification
-    if len(converted.shape) > 1 and converted.shape[1] == 1 :
-        converted = converted.squeeze()
-    
-    return converted
+        return (x, y)
 
 def grad2vector(params) -> torch.Tensor :
     # Params must be iterable - a list or iterator
@@ -69,9 +71,39 @@ def pd_data_transformer(transform_list : list[tuple[list[str], Any]]) -> ColumnT
     
     return ColumnTransformer(transformers, remainder = "passthrough")
 
+# Done to avoid code repetition. Need to use np.asarray() to avoid linter crying 
+# and .to_frame() to keep OrdinalEncoder() happy - doesn't like series objects
+def compatible_torch_transform(transform : Callable, x : pd.Series | pd.DataFrame, dtype= torch.float32 ) -> torch.Tensor :
+    
+    x_safe = x.to_frame() if isinstance(x, pd.Series) else x
+    
+    transformation = transform(x_safe)
+    
+    converted = np2torch(np.asarray(transformation), dtype= dtype)
+    
+    return converted
+
+def dfs2train_test(df_train : pd.DataFrame, df_test : pd.DataFrame, transformer,
+                       dtype : torch.dtype = torch.float32) -> tuple[torch.Tensor, torch.Tensor] :
+    
+    # Boilerplate
+    train = compatible_torch_transform(
+        transformer.fit_transform, df_train, dtype = dtype)
+    
+    test = compatible_torch_transform(
+        transformer.transform, df_test, dtype = dtype)
+    
+    return train, test
+
 ###### METRICS ####
 
-def torch_grad_var(gradient_matrix, tl = None, tp = None, dim: int = 0,) -> torch.Tensor :
+
+
+def torch_grad_avg(gradient_matrix, tl = None, tp = None, dim : int = 0) -> torch.Tensor :
+    
+    return torch.mean(gradient_matrix, dim = dim)
+
+def torch_grad_var(gradient_matrix, tl = None, tp = None, dim : int = 0,) -> torch.Tensor :
     
     return torch.var(gradient_matrix, dim = dim)
 
@@ -85,21 +117,106 @@ def torch_E_log_fprime(gradient_matrix, tl = None, tp = None, dim : int = 0,) ->
     return torch.mean(logged, dim = dim)
 
 
+def validate_activation_df_column_names(test_suite, test_columns) :
+    
+    col_length_diff =  len(test_suite) - len(test_columns) 
+    backup_column_names = [func.__name__ for func in test_suite] # If not enough column names provided
+    updated_test_columns = []
+    
+    # If no column names provided at all, use the default names
+    if not test_columns :
+        updated_test_columns = backup_column_names
+    elif col_length_diff >= 0 :
+        updated_test_columns = test_columns + backup_column_names[len(test_columns):] # Add the remainder as test function names
+    else : 
+        raise ValueError(f"More test col names provided than exist test functions ({len(test_columns)} vs. {len(test_suite)})")
+    
+    return updated_test_columns
 
-def index_name(i : int = 0) -> str | int :
+def name2index(name : str) -> int :
     
     mapping = {
-        0 : "param",
-        1 : "epoch",
-    }
-    
-    return mapping.get(i, i)
-
-def name_index(name : str) -> int :
-    
-    mapping = {
-        "params" : 0,
-        "epochs" : 1,
+        "epochs" : 0,
+        "params" : 1,
+        "test_samples" : 1,
+        "folds" : 2
     }
     
     return mapping.get(name, 2)
+
+encoding_char_pairs = ["[]", "()", "{}", "£$", ",'"]
+char_pairs = {k[1] : k[0] for k in encoding_char_pairs}
+
+def bencode_name_pair(name_A : str, name_B : str) -> str :
+    
+    charset = set(list(name_A + name_B))
+    
+    i = 0
+    for encode_key in encoding_char_pairs :
+        if encode_key[0] not in charset and encode_key[1] not in charset :
+            break
+        i += 1
+    
+    if i >= len(encoding_char_pairs) :
+        raise IndexError(f"Could not find viable encoding character pairs for names {name_A}, {name_B}")
+    
+    a, b = list(encoding_char_pairs[i])
+    
+    encoding = name_A + a + name_B + b
+    
+    return encoding
+
+def bdecode_name_pair(encoded_name : str) -> tuple[str, str]:
+    
+    b = encoded_name[-1]
+    a = char_pairs.get(b, None)
+    
+    if a is None : raise ValueError(f"Name {encoded_name} does not correspond to a pair encoding")
+    
+    index_of_a = encoded_name.index(a)
+    
+    name_A = encoded_name[:index_of_a]
+    name_B = encoded_name[index_of_a+1:-1]
+    
+    charset = set(list(name_A + name_B))
+    
+    if a in charset or b in charset :
+        raise ValueError(f"Name was not bracket-encoded; one of ({a},{b}) appears more than once")
+    
+    return name_A, name_B
+
+def extract_bencoded_list(arr : list[str], as_lists : bool = True) -> tuple[list | set[str], list | set[str]] :
+    
+    first_elems = set([])
+    second_elems = set([])
+    
+    for x in arr :
+        
+        A,B = bdecode_name_pair(x)
+        first_elems.add(A)
+        second_elems.add(B)
+    
+    if as_lists :
+        first_elems = list(first_elems)
+        second_elems = list(second_elems)
+        
+    return first_elems, second_elems
+
+def generate_plot_title(activation_names : str, kfold_k : int = 0, logged : bool = True) -> str :
+    
+    eval_type = "train" if kfold_k > 1 else "test"
+    
+    fold_explanation = f", {kfold_k}-fold" if kfold_k else ""
+    
+    title = f"[{eval_type} data{fold_explanation}] Activation tests over gradient data: {", ".join(activation_names)}"
+    
+    if logged :
+        title += " (symlogged-data)"
+        
+    return title
+    
+    
+
+def IPLo(x : float) -> float :
+    
+    return np.sign(x) * np.log1p(np.abs(x))

@@ -1,5 +1,6 @@
-penguins.csv
 venv
 __pycache__
-datasets
+datasets/*
 legacy_code
+saved_figures/*
+saved_csvs/*

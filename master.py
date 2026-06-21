@@ -7,6 +7,8 @@ from networks import *
 from helpers import *
 from config import *
 from activation_testing import *
+from dataclass_objects import experimentParams
+from dataclasses import asdict
 
 ##################### CODE #####################
 
@@ -16,14 +18,17 @@ df = df[features + labels].dropna(how = "any").reset_index(drop=True)
 numeric_columns = df.select_dtypes(include = "number").columns.tolist()
 nonnumerics = [col for col in df.columns if col not in set(numeric_columns)]
 
-transform_list_x = [(numeric_columns, StandardScaler())]
-transform_list_y = [(nonnumerics, OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))]
+# Because train columns will always be numeric and test column always nonnumeric, we don't need to manually define both lists
+feature_transform_list = [(numeric_columns, StandardScaler())]
+label_transform_list = [(nonnumerics, OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))]
 
 df_train, df_test = train_test_split(df, test_size = test_size)
 
-complete_activation_loop(df_train, df_test, ShortNetwork, labels,
-                               transform_list_x = transform_list_x,
-                               transform_list_y = transform_list_y,
-                               activations = activations,
-                               test_suite = test_suite,
-                               kfold_aggfuncs = aggfuncs )
+experiment_params = experimentParams(df_train, df_test, labels, ShortNetwork,
+                        feature_transform_list = feature_transform_list,
+                        label_transform_list = label_transform_list,
+                        activations = activations,
+                        test_suite = test_suite,
+                        kfold_aggfuncs = aggfuncs)
+
+complete_activation_loop(**asdict(experiment_params))

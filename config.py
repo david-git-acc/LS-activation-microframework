@@ -22,7 +22,7 @@ labels = ["sex"] # Must be categorical
 
 # Cheap hack to avoid having to specify manual names
 names = [activation.__class__.__name__ for activation in activations]
-test_suite = [torch.var, torch_E_log_fprime, torch.mean] 
+test_suite = [torch.var, log_average, torch.mean] 
 n_classes = max(2, len( df[labels].value_counts()))
 aggfuncs = [torch.mean, torch.var]
 

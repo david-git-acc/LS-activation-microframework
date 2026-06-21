@@ -19,14 +19,13 @@ def plot_activation_data(activation_df : pd.DataFrame, figsize_px : tuple[float,
                          exclude : set[str] = set(["activation", "index"]), save : bool = True, 
                          show : bool = False, savename : str = "plot.png",
                          max_samples : int = 100, markersize : float = 1,
-                         n_skip : int = 0, epsilon_thresh : float = 0.05,
-                         title : str | None = None,
-                         kde : bool = True) -> None :
-    
+                         n_skip : int = 0, title : str | None = None, kde : bool = True) -> None :
+
     activation_types = pd.unique(activation_df["activation"]).tolist()
+        
+    all_tests = [test for test in activation_df.columns if test not in exclude]
     
-    all_tests = [x for x in activation_df.columns if x not in exclude]
-    
+    # Used a custom bracket-encoding scheme from helpers to avoid multi-indexing in Pandas
     test_types, agg_types = extract_bencoded_list(all_tests, as_lists = True)
     
     n_tests = len(test_types)
@@ -43,13 +42,13 @@ def plot_activation_data(activation_df : pd.DataFrame, figsize_px : tuple[float,
     # Visualisation type changes depending on if we measured on epochs, parameters or neither
     uses_epochs = measure == "epoch"
     
+    # Shown in the plot axis labels
     official_measurement_strname = measure.capitalize() + "s"
     
     fig, axes = plt.subplots(figsize = tuple(x / 96 for x in figsize_px), nrows = nrows, ncols = ncols)
     
     # Avoid 2D array for ease of implementation
-    if n_tests > 1: 
-        axes = axes.flatten()
+    axes = np.atleast_1d(axes).flatten()
         
     # Map each test to a specific axis object so we can reference the same axis (n_agg_types) times
     test2ax = dict(zip(test_types, axes))
@@ -77,21 +76,13 @@ def plot_activation_data(activation_df : pd.DataFrame, figsize_px : tuple[float,
 
             x = activation_data[test].index.tolist()
             y = activation_data[test]
-            
-
-                        
-            # logged = ""
-            # if np.abs(y.max()) > (1+logthresh) * y.quantile(0.99) :
-            #     print(f"Warning: {test} exceeds reasonable magnitude tolerance. Applying symmetric logscale. ")
-            #     y = np.sign(y) * np.log1p(np.abs(y))
-            #     logged = "log-"
                 
             activation_colour = activation_colours[j]
             linestyle = agg2linestyle[agg_type]
             label = f"fold-{agg_type}({activation_name})"
 
             # Symmetric log scale - needs to be sign-preserving for negative values + 0
-            y = IPLo(y)
+            y = symlog(y)
 
             if uses_epochs :
                 
@@ -118,15 +109,15 @@ def plot_activation_data(activation_df : pd.DataFrame, figsize_px : tuple[float,
                 ax.set_ylabel("frequency density", fontsize = "large")
                 
     for ax in axes :
-        ax.grid(True)
-        ax.axhline(0, 0, 1, linestyle = "--", color = "red", label = "x-axis")
+        ax.grid(True, zorder = -1)
+        ax.axhline(0, 0, 1, linestyle = "--", color = "red")
         ax.legend(loc = "upper left", prop = {'size': 9})          
         
     if title is None : title = f"Activation tests over {measure} on {", ".join(activation_types)}"
     
     plt.suptitle(title, fontsize = "xx-large")
-    
     plt.tight_layout()
+    
     if save : plt.savefig(savename)
     if show : plt.show()
 

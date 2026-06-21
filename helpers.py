@@ -56,7 +56,8 @@ def grad2vector(params) -> torch.Tensor :
 
 def pd_data_transformer(transform_list : list[tuple[list[str], Any]]) -> ColumnTransformer :
 
-    """Admits a list of tuples, where each tuple represents a list of dataframe column names to be transformed 
+    """
+    Admits a list of tuples, where each tuple represents a list of dataframe column names to be transformed 
     by the corresponding scaler. Dataframe columns not specified will remain in the dataframe untouched.
     
 
@@ -87,27 +88,22 @@ def dfs2train_test(df_train : pd.DataFrame, df_test : pd.DataFrame, transformer,
                        dtype : torch.dtype = torch.float32) -> tuple[torch.Tensor, torch.Tensor] :
     
     # Boilerplate
-    train = compatible_torch_transform(
-        transformer.fit_transform, df_train, dtype = dtype)
-    
-    test = compatible_torch_transform(
-        transformer.transform, df_test, dtype = dtype)
+    train = compatible_torch_transform(transformer.fit_transform, df_train, dtype = dtype)
+    test = compatible_torch_transform(transformer.transform, df_test, dtype = dtype)
     
     return train, test
 
 ###### METRICS ####
 
-
-
-def torch_grad_avg(gradient_matrix, tl = None, tp = None, dim : int = 0) -> torch.Tensor :
+def torch_grad_avg(gradient_matrix, dim : int = 0) -> torch.Tensor :
     
     return torch.mean(gradient_matrix, dim = dim)
 
-def torch_grad_var(gradient_matrix, tl = None, tp = None, dim : int = 0,) -> torch.Tensor :
+def torch_grad_var(gradient_matrix, dim : int = 0,) -> torch.Tensor :
     
     return torch.var(gradient_matrix, dim = dim)
 
-def torch_E_log_fprime(gradient_matrix, tl = None, tp = None, dim : int = 0,) -> torch.Tensor :
+def log_average(gradient_matrix, dim : int = 0,) -> torch.Tensor :
     
     # Avoid negative badness
     safe = torch.abs(gradient_matrix) + 1e-10
@@ -202,21 +198,39 @@ def extract_bencoded_list(arr : list[str], as_lists : bool = True) -> tuple[list
         
     return first_elems, second_elems
 
-def generate_plot_title(activation_names : str, kfold_k : int = 0, logged : bool = True) -> str :
+def validate_testfunction(X : torch.Tensor, test_suite, test_columns, kfold_aggfuncs, kfold_columns,
+                          expected_ndims : int = 2) :
+    
+    if not isinstance(kfold_aggfuncs, list) : kfold_aggfuncs = [kfold_aggfuncs]
+    if not isinstance(kfold_columns, list) : kfold_columns = [kfold_columns]
+    
+    is_test_data = len(X.size()) == expected_ndims
+    
+    # If it's test data then there are no folds, so to avoid having to duplicate this function we add a dummy one
+    if is_test_data : X = X[..., None]
+
+    test_columns = validate_activation_df_column_names(test_suite, test_columns)
+    kfold_columns = validate_activation_df_column_names(kfold_aggfuncs, kfold_columns)
+    
+    return X, test_suite, test_columns, kfold_aggfuncs, kfold_columns
+
+def generate_plot_title(category : str, kfold_k : int = 0) -> str :
     
     eval_type = "train" if kfold_k > 1 else "test"
     
     fold_explanation = f", {kfold_k}-fold" if kfold_k else ""
     
-    title = f"[{eval_type} data{fold_explanation}] Activation tests over gradient data: {", ".join(activation_names)}"
+    title = f"[{eval_type} data{fold_explanation}] Activation tests over symlogged {category} data"
     
-    if logged :
-        title += " (symlogged-data)"
-        
-    return title
-    
-    
+    return title            
 
-def IPLo(x : float) -> float :
+def symlog(x : float) -> float : 
     
     return np.sign(x) * np.log1p(np.abs(x))
+
+def get_number_of_features_and_classes(df : pd.DataFrame, labels : list[str]) :
+    
+    n_features = len(df.columns) - len(labels)
+    n_classes = max(2, len( df[labels].value_counts()))
+    
+    return n_features, n_classes

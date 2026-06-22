@@ -31,4 +31,4 @@ experiment_params = experimentParams(df_train, df_test, labels, ShortNetwork,
                         test_suite = test_suite,
                         kfold_aggfuncs = aggfuncs)
 
-complete_activation_loop(**asdict(experiment_params))
+complete_activation_loop(experiment_params)

@@ -95,14 +95,6 @@ def dfs2train_test(df_train : pd.DataFrame, df_test : pd.DataFrame, transformer,
 
 ###### METRICS ####
 
-def torch_grad_avg(gradient_matrix, dim : int = 0) -> torch.Tensor :
-    
-    return torch.mean(gradient_matrix, dim = dim)
-
-def torch_grad_var(gradient_matrix, dim : int = 0,) -> torch.Tensor :
-    
-    return torch.var(gradient_matrix, dim = dim)
-
 def log_average(gradient_matrix, dim : int = 0,) -> torch.Tensor :
     
     # Avoid negative badness
@@ -198,22 +190,6 @@ def extract_bencoded_list(arr : list[str], as_lists : bool = True) -> tuple[list
         
     return first_elems, second_elems
 
-def validate_testfunction(X : torch.Tensor, test_suite, test_columns, kfold_aggfuncs, kfold_columns,
-                          expected_ndims : int = 2) :
-    
-    if not isinstance(kfold_aggfuncs, list) : kfold_aggfuncs = [kfold_aggfuncs]
-    if not isinstance(kfold_columns, list) : kfold_columns = [kfold_columns]
-    
-    is_test_data = len(X.size()) == expected_ndims
-    
-    # If it's test data then there are no folds, so to avoid having to duplicate this function we add a dummy one
-    if is_test_data : X = X[..., None]
-
-    test_columns = validate_activation_df_column_names(test_suite, test_columns)
-    kfold_columns = validate_activation_df_column_names(kfold_aggfuncs, kfold_columns)
-    
-    return X, test_suite, test_columns, kfold_aggfuncs, kfold_columns
-
 def generate_plot_title(category : str, kfold_k : int = 0) -> str :
     
     eval_type = "train" if kfold_k > 1 else "test"
@@ -228,7 +204,7 @@ def symlog(x : float) -> float :
     
     return np.sign(x) * np.log1p(np.abs(x))
 
-def get_number_of_features_and_classes(df : pd.DataFrame, labels : list[str]) :
+def get_number_of_features_and_classes(df : pd.DataFrame, labels : str | list[str]) -> tuple[int, int] :
     
     n_features = len(df.columns) - len(labels)
     n_classes = max(2, len( df[labels].value_counts()))

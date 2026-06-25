@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from math import ceil
 import seaborn as sns
 from helpers import *
+from config import kfold_k
+from dataclass_objects import plotParams
 
 def get_n_colours(n : int, cmap : str = "viridis" ) -> np.ndarray :
     
@@ -19,37 +21,21 @@ def plot_activation_data(activation_df : pd.DataFrame, figsize_px : tuple[float,
                          exclude : set[str] = set(["activation", "index"]), save : bool = True, 
                          show : bool = False, savename : str = "plot.png",
                          max_samples : int = 100, markersize : float = 1,
-                         n_skip : int = 0, title : str | None = None, kde : bool = True) -> None :
+                         n_skip : int = 0, title : str = "", plot_type : str = "epochs") -> None :
 
     activation_types = pd.unique(activation_df["activation"]).tolist()
         
     all_tests = [test for test in activation_df.columns if test not in exclude]
-    
-    # Used a custom bracket-encoding scheme from helpers to avoid multi-indexing in Pandas
-    test_types, agg_types = extract_bencoded_list(all_tests, as_lists = True)
-    
-    n_tests = len(test_types)
-    n_agg_types = len(agg_types)
-    
-    if len(linestyles) < n_agg_types :
-        raise IndexError(f"Not enough linestyles ({len(linestyles)}) for number of aggfuncs ({n_agg_types})")
-    
-    nrows = ceil(n_tests / plots_per_row) 
-    ncols = min(plots_per_row, n_tests)
-    
-    measure = str(activation_df.index.name)
-    
-    # Visualisation type changes depending on if we measured on epochs, parameters or neither
-    uses_epochs = measure == "epoch"
-    
-    # Shown in the plot axis labels
-    official_measurement_strname = measure.capitalize() + "s"
+    test_types, agg_types = extract_tuple_list([col for col in activation_df.columns if isinstance(col, tuple)])
+     
+    nrows = ceil(len(test_types) / plots_per_row) 
+    ncols = min(plots_per_row, len(test_types))
     
     fig, axes = plt.subplots(figsize = tuple(x / 96 for x in figsize_px), nrows = nrows, ncols = ncols)
     
     # Avoid 2D array for ease of implementation
     axes = np.atleast_1d(axes).flatten()
-        
+
     # Map each test to a specific axis object so we can reference the same axis (n_agg_types) times
     test2ax = dict(zip(test_types, axes))
     
@@ -58,10 +44,7 @@ def plot_activation_data(activation_df : pd.DataFrame, figsize_px : tuple[float,
     
     activation_colours = get_n_colours(len(activation_types))
 
-    for test in all_tests :
-        
-        test_type, agg_type = bdecode_name_pair(test)
-        
+    for test_type, agg_type in all_tests :
         ax = test2ax[test_type]
         
         for j, activation_name in enumerate( activation_types ) :
@@ -74,52 +57,85 @@ def plot_activation_data(activation_df : pd.DataFrame, figsize_px : tuple[float,
             # Cut the number of datapoints for clarity
             activation_data = full_activation_data.iloc[::sample_rate]
 
-            x = activation_data[test].index.tolist()
-            y = activation_data[test]
+            x = activation_data[(test_type, agg_type)].index.tolist()
+            y = activation_data[(test_type, agg_type)]
+            
+            params = plotParams(activation_name, plot_type, activation_colours[j], agg2linestyle.get(agg_type, "-"), 
+                                xlabel = str(activation_df.index.name), ylabel = test_type, 
+                                legend_label = f"fold-{agg_type}({activation_name})")
                 
-            activation_colour = activation_colours[j]
-            linestyle = agg2linestyle[agg_type]
-            label = f"fold-{agg_type}({activation_name})"
-
-            # Symmetric log scale - needs to be sign-preserving for negative values + 0
-            y = symlog(y)
-
-            if uses_epochs :
-                
-                ax.plot(x,y, label = label, 
-                        color = activation_colour,
-                        linestyle = linestyle,
-                        marker = "^", markersize = markersize)
-                
-                # ax.fill_between(x, y_min, y, color = activation_colour, alpha = 0.3)
-                
-                ax.set_xlabel(official_measurement_strname, fontsize = "large")
-                ax.set_ylabel(test_type, fontsize = "large")
-                
-            else :
-                if kde: sns.kdeplot(x=y, color = activation_colour, linestyle = linestyle,
-                            label = label, ax = ax,
-                            fill = True, alpha = 0.3, common_norm = False)
-                else: sns.histplot(x=y, color = activation_colour, linestyle = linestyle,
-                            label = label, ax = ax,
-                            fill = True, alpha = 0.3, common_norm = False,
-                            stat = "probability")
-                
-                ax.set_xlabel(test_type, fontsize = "large")
-                ax.set_ylabel("frequency density", fontsize = "large")
+            plot_activation(x, y, ax, params)
                 
     for ax in axes :
-        ax.grid(True, zorder = -1)
-        ax.axhline(0, 0, 1, linestyle = "--", color = "red")
-        ax.legend(loc = "upper left", prop = {'size': 9})          
-        
-    if title is None : title = f"Activation tests over {measure} on {", ".join(activation_types)}"
-    
+        ymin, ymax = ax.get_ylim()
+        if 0 > ymin and 0 < ymax : 
+            ax.axhline(0, 0, 1, linestyle = "--", color = "red")
+         
     plt.suptitle(title, fontsize = "xx-large")
     plt.tight_layout()
     
     if save : plt.savefig(savename)
     if show : plt.show()
+    
+    plt.close(fig)
+    
+    
+    
+def plot_activation(x, y, ax, p : plotParams = plotParams()) :
+        
+    if p.plot_type == "curve" :
+        
+        # Symmetric log scale - needs to be sign-preserving for negative values + 0
+        y = symlog(y)
+        
+        ax.plot(x, y, label = p.legend_label, color = p.colour, linestyle = p.linestyle, marker = p.marker, 
+                markersize = p.markersize )
+        ax.set_xlabel(p.xlabel, fontsize = "large")
+        ax.set_ylabel(p.ylabel, fontsize = "large")
+        
+    elif p.plot_type == "kde" : 
+        sns.kdeplot(x=y, color = p.colour, linestyle = p.linestyle, label = p.legend_label, ax = ax, alpha = 0.3,
+                    fill = True, common_norm = False)
+    else: 
+        sns.histplot(x=y, color = p.colour, linestyle = p.linestyle, label = p.legend_label, ax = ax,
+                    fill = True, alpha = 0.3, common_norm = False,  stat = "probability")
+        
+    if p.plot_type != "curve" :   
+        ax.set_xlabel(p.ylabel, fontsize = "large")
+        ax.set_ylabel("frequency density", fontsize = "large")
+        
+    ax.grid(True, zorder = -1)
+    ax.legend(loc = "upper left", prop = {'size': 9})    
+    
+    
+        
+def determine_plot_type(eval_type, category, measure_type) -> str :
+    
+    if measure_type == "epochs" :
+        return "curve"
+    elif eval_type == "train" : 
+        return "histplot"
+    else :
+        return "kde"
+    
+def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame] , 
+                          save_csv_folder : str = "saved_csvs", save_fig_folder : str = "saved_figures") -> None :
 
+    save_path_csv = f"{generate_savefolder(results)}/{save_csv_folder}"
+    save_path_fig = f"{generate_savefolder(results)}/{save_fig_folder}"
+    
+    create_path(save_path_csv)
+    create_path(save_path_fig)
 
-   
+    for eval_type, category, measure_type in results :
+
+        total_activation_df = results[(eval_type, category, measure_type)]
+        savename = f"{category}-{measure_type}_on_{eval_type}"
+            
+        total_activation_df.to_csv(f"{save_path_csv}/{savename}.csv")
+            
+        plot_activation_data(total_activation_df, figsize_px = (1920, 1080),
+                        max_samples = 50, markersize = 4,
+                        savename = f"{save_path_fig}/{savename}.png",
+                        title = generate_plot_title(category, 1 if eval_type == "test" else kfold_k),
+                        n_skip = 5, plot_type = determine_plot_type(eval_type, category, measure_type))

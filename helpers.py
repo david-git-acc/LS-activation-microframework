@@ -6,7 +6,16 @@ from torch.nn.utils import parameters_to_vector
 from sklearn.compose import ColumnTransformer
 from typing import Any, Callable
 import matplotlib.pyplot as plt
-from math import ceil
+import hashlib
+import json
+from pathlib import Path
+
+def get_name(obj : Any) -> str :
+    
+    if hasattr(obj, "__name__") :
+        return obj.__name__
+    
+    return obj.__class__.__name__
 
 def np2torch(array : np.ndarray, dtype = torch.float32) -> torch.Tensor :
     
@@ -54,7 +63,7 @@ def grad2vector(params) -> torch.Tensor :
     
     return grad_vector
 
-def pd_data_transformer(transform_list : list[tuple[list[str], Any]]) -> ColumnTransformer :
+def pd_data_transformer(transform_list : tuple[tuple[list[str], Any], ...]) -> ColumnTransformer :
 
     """
     Admits a list of tuples, where each tuple represents a list of dataframe column names to be transformed 
@@ -68,7 +77,7 @@ def pd_data_transformer(transform_list : list[tuple[list[str], Any]]) -> ColumnT
     transformers = []
     
     for columns, chosen_scaler in transform_list :
-        transformers.append((f"{chosen_scaler.__class__.__name__}", chosen_scaler, columns))
+        transformers.append((f"{get_name(chosen_scaler)}", chosen_scaler, columns))
     
     return ColumnTransformer(transformers, remainder = "passthrough")
 
@@ -80,7 +89,7 @@ def compatible_torch_transform(transform : Callable, x : pd.Series | pd.DataFram
     
     transformation = transform(x_safe)
     
-    converted = np2torch(np.asarray(transformation), dtype= dtype)
+    converted = np2torch(np.asarray(transformation), dtype = dtype)
     
     return converted
 
@@ -95,20 +104,39 @@ def dfs2train_test(df_train : pd.DataFrame, df_test : pd.DataFrame, transformer,
 
 ###### METRICS ####
 
-def log_average(gradient_matrix, dim : int = 0,) -> torch.Tensor :
+
+def variance(X : torch.Tensor, dim : int | tuple = 0) -> torch.Tensor :
+    
+    if isinstance(dim, int) :
+        dim = (dim, )
+    
+    mean = torch.nanmean(X, dim=dim, keepdim = True)
+
+    squares = (X - mean)**2
+
+    return torch.nanmean(squares, dim = dim)
+
+def arithmetic_mean(X : torch.Tensor, dim : int = 0) -> torch.Tensor :
+    
+    meaned = torch.nanmean(X, dim = dim)
+
+    return meaned    
+
+def log_average(X : torch.Tensor, dim : int = 0,) -> torch.Tensor :
     
     # Avoid negative badness
-    safe = torch.abs(gradient_matrix) + 1e-10
+    safe = torch.abs(X) + 1e-10
     
     logged = torch.log(safe)
     
-    return torch.mean(logged, dim = dim)
+    return torch.nanmean(logged, dim = dim)
 
 
-def validate_activation_df_column_names(test_suite, test_columns) :
+def validate_activation_df_column_names(test_suite : list[Callable] | tuple[Callable, ...], 
+                                        test_columns : list[str]) -> list[str] :
     
     col_length_diff =  len(test_suite) - len(test_columns) 
-    backup_column_names = [func.__name__ for func in test_suite] # If not enough column names provided
+    backup_column_names = [get_name(func) for func in test_suite] # If not enough column names provided
     updated_test_columns = []
     
     # If no column names provided at all, use the default names
@@ -132,63 +160,23 @@ def name2index(name : str) -> int :
     
     return mapping.get(name, 2)
 
-encoding_char_pairs = ["[]", "()", "{}", "£$", ",'"]
-char_pairs = {k[1] : k[0] for k in encoding_char_pairs}
+def testloss_dummy(x : torch.Tensor, dim : int = 0) -> torch.Tensor :
+    
+    return x
 
-def bencode_name_pair(name_A : str, name_B : str) -> str :
+def extract_tuple_list(arr : list[tuple[Any, ...]]) -> list[list[Any]] :
     
-    charset = set(list(name_A + name_B))
+    if len(arr) == 0 : return []
     
-    i = 0
-    for encode_key in encoding_char_pairs :
-        if encode_key[0] not in charset and encode_key[1] not in charset :
-            break
-        i += 1
+    n_elements_per_tuple = max(len(ntuple) for ntuple in arr)
+    tuple_buckets = [set([]) for _ in range(n_elements_per_tuple)]
     
-    if i >= len(encoding_char_pairs) :
-        raise IndexError(f"Could not find viable encoding character pairs for names {name_A}, {name_B}")
-    
-    a, b = list(encoding_char_pairs[i])
-    
-    encoding = name_A + a + name_B + b
-    
-    return encoding
-
-def bdecode_name_pair(encoded_name : str) -> tuple[str, str]:
-    
-    b = encoded_name[-1]
-    a = char_pairs.get(b, None)
-    
-    if a is None : raise ValueError(f"Name {encoded_name} does not correspond to a pair encoding")
-    
-    index_of_a = encoded_name.index(a)
-    
-    name_A = encoded_name[:index_of_a]
-    name_B = encoded_name[index_of_a+1:-1]
-    
-    charset = set(list(name_A + name_B))
-    
-    if a in charset or b in charset :
-        raise ValueError(f"Name was not bracket-encoded; one of ({a},{b}) appears more than once")
-    
-    return name_A, name_B
-
-def extract_bencoded_list(arr : list[str], as_lists : bool = True) -> tuple[list | set[str], list | set[str]] :
-    
-    first_elems = set([])
-    second_elems = set([])
-    
-    for x in arr :
+    for ntuple in arr :
         
-        A,B = bdecode_name_pair(x)
-        first_elems.add(A)
-        second_elems.add(B)
+        for tuple_index, elem in enumerate( ntuple ) :
+            tuple_buckets[tuple_index].add(elem)
     
-    if as_lists :
-        first_elems = list(first_elems)
-        second_elems = list(second_elems)
-        
-    return first_elems, second_elems
+    return [list(x) for x in tuple_buckets]    
 
 def generate_plot_title(category : str, kfold_k : int = 0) -> str :
     
@@ -196,13 +184,13 @@ def generate_plot_title(category : str, kfold_k : int = 0) -> str :
     
     fold_explanation = f", {kfold_k}-fold" if kfold_k else ""
     
-    title = f"[{eval_type} data{fold_explanation}] Activation tests over symlogged {category} data"
+    title = f"[{eval_type} data{fold_explanation}] Activation tests over {category} data"
     
     return title            
 
-def symlog(x : float) -> float : 
+def symlog(x : pd.DataFrame | np.ndarray | pd.Series, thresh : float = 1.0) -> pd.DataFrame | np.ndarray | pd.Series : 
     
-    return np.sign(x) * np.log1p(np.abs(x))
+    return np.sign(x) * np.log1p(np.abs(x) / thresh)
 
 def get_number_of_features_and_classes(df : pd.DataFrame, labels : str | list[str]) -> tuple[int, int] :
     
@@ -210,3 +198,22 @@ def get_number_of_features_and_classes(df : pd.DataFrame, labels : str | list[st
     n_classes = max(2, len( df[labels].value_counts()))
     
     return n_features, n_classes
+
+def generate_savefolder(dfs : pd.DataFrame | dict[tuple[str,str,str] , pd.DataFrame], maxlen : int = 10) -> str :
+    
+    if isinstance(dfs, pd.DataFrame) :
+        dfs = {("bleh", "foo this", "ahh, wire!") : dfs}
+    
+    
+    strformat = {str(k) : sorted( [ str(x) for x in v.columns ] ) for k, v in dfs.items()}
+    as_str = json.dumps(strformat, sort_keys = True).encode()
+    
+    hash_monstrosity = hashlib.sha256(as_str).hexdigest()
+    
+    return "data-" + hash_monstrosity[:maxlen] 
+    
+def create_path(pathname : str) -> None :
+    
+    path = Path(pathname)
+    
+    path.mkdir(parents = True, exist_ok = True)

@@ -2,5 +2,4 @@ venv
 __pycache__
 datasets/*
 legacy_code
-saved_figures/*
-saved_csvs/*
+data-*

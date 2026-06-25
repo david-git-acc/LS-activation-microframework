@@ -16,15 +16,15 @@ from typing import Any, Callable
 df = pd.read_csv("datasets/penguins.csv", index_col = 0)
 
 # SELECT MEASURING DEVICES HERE
-activations = [nn.ReLU(), LIPLo(), nn.Tanh()]
+activations = ( IPLo(), nn.Tanh() )
 features = ["bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g"] # Must be numeric
 labels = ["sex"] # Must be categorical
 
 # Cheap hack to avoid having to specify manual names
-names = [activation.__class__.__name__ for activation in activations]
-test_suite = [torch.var, log_average, torch.mean] 
+names = tuple( activation.__class__.__name__ for activation in activations )
+test_suite = (variance, log_average, arithmetic_mean )
 n_classes = max(2, len( df[labels].value_counts()))
-aggfuncs = [torch.mean, torch.var]
+aggfuncs = ( arithmetic_mean, variance )
 
 # Hyperparameters
 epochs = 500

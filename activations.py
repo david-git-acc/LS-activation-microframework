@@ -2,20 +2,6 @@ import torch
 from torch import nn
 from helpers import get_name
 
-# class LIPLo_(torch.autograd.Function):
-#     @staticmethod
-#     def forward(ctx, x, alpha):
-#         ctx.save_for_backward(x, torch.tensor(alpha))
-#         # log1p(x) is log(1 + x), which is more numerically stable
-#         return alpha * x + (1 - alpha) * torch.sign(x) * torch.log1p(torch.abs(x))
-
-#     @staticmethod
-#     def backward(ctx, grad_output): # type: ignore
-#         x, alpha = ctx.saved_tensors
-#         # Derivative calculation
-#         derivative = alpha + (1 - alpha) / (1 + torch.abs(x))
-#         return grad_output * derivative, None  # Return None for the 'alpha' gradient
-
 class IPLo(nn.Module):
     def __init__(self):
         super().__init__()
@@ -25,6 +11,25 @@ class IPLo(nn.Module):
         return torch.sign(x) * torch.log1p(torch.abs(x))
     
 class LS(nn.Module) :
+    
+    """
+        Superfunction that takes in a base activation function and applies the LS application to it:
+
+            LS_{alpha}(f(x)) = alpha x + (1-alpha) (f(x) / f'(0))
+    
+        Apply LS to an existing activation and returns a new activation with this property and an initial alpha.
+        If learnable = true, alpha can update with further training of the neural network.
+        If learnable = false, untouchable (but exists inside parameters()). Useful for sensitivity analysis.
+        
+        Key part of the developed theory.
+        
+        Params:
+            base_activation: original activation to apply LS transformation to.
+            alpha: alpha value to choose in the LS transformation.
+            learnable: whether alpha can be modified during training.
+            dtype: datatype to use in computations of the activation.
+            
+    """
     
     def __init__(self, base_activation : nn.Module, alpha : float = 0.01, learnable : bool = False,
                  dtype : torch.dtype = torch.float32) :

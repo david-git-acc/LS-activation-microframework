@@ -12,18 +12,41 @@ from helpers import *
 from typing import Any, Callable, Type
 from visualisation import *
 from dataclass_objects import categoryParams, experimentResult, experimentParams, monitorParams
-from dataclasses import replace
-import config
+from dataclasses import replace, asdict
 import copy
+from rich.progress import Progress
+from config import seed
 
 def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor, 
                Y_train_tensor : torch.Tensor, Y_test_tensor : torch.Tensor, 
-               my_model : nn.Module, my_loss = nn.CrossEntropyLoss(),
-               epochs : int = config.epochs, lr : float = 0.001, 
-               batch_size : int = -1) -> experimentResult : 
+               my_model : nn.Module, my_loss : nn.Module = nn.CrossEntropyLoss(),
+               epochs : int = 500, lr : float = 0.001, 
+               batch_size : int = -1, max_samples : int = -1) -> experimentResult : 
+    
+    """
+    Main experiment code for the project. Takes in tensors, model, loss, and metadata and returns result as a
+    simple experimentResult dataclass for ease of use. Ideal for passing in experimentParams dataclass as input.
+    Main driver function for multiple experiment classes; never remove functionality from this, only add.
+    
+    Params:
+        X_train_tensor : n x d training feature matrix.
+        X_test_tensor : n_test x d testing feature matrix.
+        Y_train_tensor : 1 x n or n x 1 training label matrix.
+        Y_test_tensor : 1 x n_test or n_test x 1 testing label matrix.
+        my_model : the model to perform the experiment with.
+        my_loss : the loss function to evaluate the model.
+        epochs : number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
+        lr : constant learning rate value. In theory, you could pass in a variable learning rate here (not recommended).
+        batch_size : number of training examples to use per gradient descent step. Defaults to -1 (all training examples per step)
+        max_samples : maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all). 
+        
+    Returns:
+        experimentResult : stores all the captured data for future use.
+    """
     
     # Use full-batch GD if no batch size given
     batch_size = len(X_train_tensor) if batch_size == -1 else batch_size
+    max_samples = epochs if max_samples == -1 else max_samples
     
     training_dataset = TensorDataset(X_train_tensor, Y_train_tensor)
     training_dataloader = DataLoader(training_dataset, batch_size, shuffle = True )
@@ -31,10 +54,15 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
     optim = torch.optim.Adam(my_model.parameters(), lr=lr)
     nabla = torch.zeros_like(grad2vector(my_model.parameters()))
     
-    gradient_matrix = torch.nan * torch.ones(size = (epochs, len(nabla)))
-    test_loss = torch.nan * torch.ones(epochs)
-    test_predictions = torch.nan * torch.ones(size = (epochs, len(Y_test_tensor)))
-
+    n = min(max_samples, epochs) if max_samples > 0 else epochs
+    record_epochs = set(sampling_indices(epochs, n))
+    
+    # Initialise as nan for debugging; can see where was not populated
+    gradient_matrix = torch.nan * torch.ones(size = (n, len(nabla)))
+    test_loss = torch.nan * torch.ones(n)
+    test_predictions = torch.nan * torch.ones(size = (n, len(Y_test_tensor)))
+    
+    record_index = 0
     for i in range(epochs) :
         my_model.train()
         
@@ -59,28 +87,48 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
         
         my_model.eval()
         with torch.no_grad() :
+            if i not in record_epochs : continue
             
             test_predictions_torch = my_model(X_test_tensor)
             outs = torch.argmax(test_predictions_torch, dim = 1) # maximum over columns, so we get a 1D vector of predictions
             
-            gradient_matrix[i, :] = nabla
-            test_loss[i] = my_loss(test_predictions_torch, Y_test_tensor).item()
-            test_predictions[i, :] = outs.view(-1)   
+            gradient_matrix[record_index, :] = nabla
+            test_loss[record_index] = my_loss(test_predictions_torch, Y_test_tensor).item()
+            test_predictions[record_index, :] = outs.view(-1)  
+            record_index += 1 
             
-        
     # gm = 2D (epochs, parameters), TL = 1D (epochs), TP = 2D (epochs, n_test)
     return experimentResult(gradient_matrix, test_loss, test_predictions)
 
 
 def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : nn.Module,
-                       labels : str | list[str], loss = nn.CrossEntropyLoss(),
+                       labels : str | list[str], loss : nn.Module = nn.CrossEntropyLoss(),
                        feature_transforms : tuple[tuple[list[str], Any], ...] = (),
                        label_transforms : tuple[tuple[list[str], Any], ...] = (),
     dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long), 
-    epochs : int = 500, batch_size : int = -1 ) -> experimentResult :
+    epochs : int = 500, batch_size : int = -1, max_samples : int = -1 ) -> experimentResult :
     
     """
-    Same as experiment() but taken directly from the dataframe to minimise boilerplate code.
+    Same as experiment() but taken directly from the dataframe to minimise boilerplate code. Also excellent for 
+    adapting with experimentParams() dataclass. 
+
+    Params: 
+        df_train: Dataframe containing train data.
+        df_tes: Dataframe containing test data.
+        model: model for use in experiment. 
+        labels: subset of columns to be predicted on.
+        loss: loss function.
+        feature_transforms: n-tuple of 2-tuples, where the former is the list of columns to transform and the latter is the 
+        transformer to apply for those columns.
+        label_transforms: same as feature_transforms but for label columns. Note that for either case, columns not specified 
+        will be left untransformed.
+        dtypes: 2-tuple containing data types of features and of labels after transformation. Only supports one type per group.
+        epochs: number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
+        batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all training examples per step)
+        max_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all). 
+        
+    Returns:
+        experimentResult: stores all the captured data for future use
     """
     
     X_transformer = pd_data_transformer(feature_transforms)
@@ -93,28 +141,56 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
     
     X_type, Y_type = dtypes
     
+    # Learn the transform on the training data and apply to the test data
     X_train, X_test = dfs2train_test(df_train_X, df_test_X, X_transformer, dtype = X_type)
     Y_train, Y_test = dfs2train_test(df_train_Y, df_test_Y, Y_transformer, dtype = Y_type)
     
-    return experiment(X_train, X_test, Y_train, Y_test, model, my_loss = loss, epochs = epochs, batch_size = batch_size)
+    return experiment(X_train, X_test, Y_train, Y_test, model, my_loss = loss, 
+                      epochs = epochs, batch_size = batch_size, max_samples = max_samples)
 
         
         
-def pd_strat_kfold_crossval(df : pd.DataFrame, labels : str | list[str], 
-                            network : nn.Module,
-                            k : int = 10, epochs : int = config.epochs, 
+def skf_crossval(df : pd.DataFrame, model : nn.Module, labels : str | list[str], 
+                            loss : nn.Module,
                             feature_transforms : tuple[tuple[list[str], Any], ...] = (), 
                             label_transforms : tuple[tuple[list[str], Any], ...] = (),
-                            batch_size : int = -1) -> experimentResult :
+                            dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long),
+                            kfold_k : int = 10, epochs : int = 500, 
+                            batch_size : int = -1, max_samples : int = -1) -> experimentResult :
     
-    skf = StratifiedKFold(n_splits = k, random_state = config.seed, shuffle = True)
+    """
+    Perform Stratified K-Fold (SKF) cross-validation on a dataframe. Highly compatible with 
+    experimentParams() dataclass using safe_asdict helper function. 
+    
+    Params:
+        df: the dataframe to perform SKF with. Please ensure no test samples are stored here.
+        model: the model to perform SKF with.
+        labels: subset of columns to be predicted on.
+        kfold_k: number of folds to perform stratified KFold on.
+        epochs: number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
+        feature_transforms: n-tuple of 2-tuples, where the former is the list of columns to transform and the latter is the 
+        transformer to apply for those columns.
+        label_transforms: same as feature_transforms but for label columns. Note that for either case, columns not specified 
+        will be left untransformed.
+        dtypes: 2-tuple containing data types of features and of labels after transformation. Only supports one type per group.  
+        batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all training examples per step)
+        max_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all).
+
+    NOTE: For any future use or modification, note that the k-fold dimension must *always* be the last one, or the program breaks.
+
+    Returns:
+        experimentResult: stores all folds and captured data for use. 
+    """
+    
+    skf = StratifiedKFold(n_splits = kfold_k, random_state = seed, shuffle = True)
     
     # If we don't reload then it becomes useless
-    original_network_state = copy.deepcopy(network.state_dict())
+    original_network_state = copy.deepcopy(model.state_dict())
     
+    n = min(epochs, max_samples) if max_samples > 0 else epochs
     gradient_matrices = [] # Store as list because we don't know parameters size yet
-    kfold_loss = torch.ones(size = (epochs, k))
-    kfold_tps = torch.nan * torch.ones(size = (epochs, len(df), k)) 
+    kfold_loss = torch.ones(size = (n, kfold_k))
+    kfold_tps = torch.nan * torch.ones(size = (n, len(df), kfold_k)) 
     # Kfolds have slightly different sizes - standardise to same n_samples size, then 
     # initialise all as NaN so we can filter them out later in metric calculation
 
@@ -123,13 +199,14 @@ def pd_strat_kfold_crossval(df : pd.DataFrame, labels : str | list[str],
     
     for fold_i, (train_index, test_index) in enumerate( skf.split(X_train, Y_train) ) :
         
-        r = experiment_from_df(df.iloc[train_index], df.iloc[test_index], network, labels, 
+        r = experiment_from_df(df.iloc[train_index], df.iloc[test_index], model, labels, 
                                feature_transforms = feature_transforms, 
                                label_transforms = label_transforms, 
-                               dtypes = (torch.float32, torch.long),
-                               epochs = epochs, batch_size = batch_size) 
+                               dtypes = dtypes, epochs = epochs, 
+                               batch_size = batch_size, max_samples = max_samples, loss = loss) 
         
-        network.load_state_dict(original_network_state)
+        # Reset model state to prevent accumulation
+        model.load_state_dict(original_network_state)
         
         gradient_matrices.append(r.grad)
         kfold_loss[:, fold_i] = r.testloss
@@ -153,16 +230,19 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
     an aggregation function (typically mean) and returns results as a Pandas dataframe.
     
     Params:
-        gms : list of gradient matrices over folds (3D: (epochs, parameters, folds))
-        over: dimension to check over. Either over "epochs" (dim=1) or the full "params" (dim=0). Can be set to a different axis manually.
+        gms : list of gradient matrices over folds (3D: (epochs, parameters, folds) - although it need not be this shape)
+        over: dimension to check over. Can be set to a different axis manually.
         test_suite: list of functions to test on.
         test_columns: names of each test. If no value given, uses the function names.
-        kfold_aggfunc: the aggregation function to collapse a dimension over. Always becomes mean() if number of folds = 1.
+        kfold_aggfuncs: the aggregation functions to collapse a dimension over. Always becomes mean() if number of folds = 1.
+        expected_ndims : number of dimensions that the data is originally meant to be in (before folds). Used for validation.
+        
+    NOTE: This function is the main function for post experiment testing; testloss and testpreds rely on this one. Also,
+    remember that the last dimension must always be the kfold dimension, or bugs will occur - silently or not.
 
-    Note: if you want to
 
     Returns:
-        result_df: Pandas dataframe containing results.
+        result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
     """
     
     mp = monitorParams(gms, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
@@ -179,7 +259,6 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
     df_columns = []
     
     for i, test_func in enumerate( test_suite ) :
-        
         result = test_func(mp.X, dim = dim)
         
         for j, kfold_aggfunc in enumerate( mp.kfold_aggfuncs ) :
@@ -187,7 +266,7 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
             kfold_dim = len(result.size()) - 1
         
             collapsed_result = kfold_aggfunc(result, dim = kfold_dim )
-            data = collapsed_result.float().view(-1).numpy() # Convert to NumPy so easier to fit as a dataframe
+            data = collapsed_result.view(-1).numpy() # Convert to NumPy so easier to fit as a dataframe
             test_results.append(data)
             
             df_column_name = (mp.test_columns[i], mp.kfold_columns[j])
@@ -201,11 +280,18 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
         
     return result_df    
 
-
 def post_experiment_test_testloss(tl : torch.Tensor, over : None = None,
                           test_suite : None = None, test_columns : list[str] = [], 
-                          kfold_aggfuncs :  tuple[Callable] = (arithmetic_mean,), 
+                          kfold_aggfuncs :  tuple[Callable, ...] = (arithmetic_mean,), 
                           kfold_columns : list[str] = ["mean"]) -> pd.DataFrame :
+    
+    """
+    Same as post_experiment_test_grad, but for testloss. Identical logic.
+    Note that test_suite, over and test_columns are deprecated because only 1 dimension is supported.
+
+    Returns:
+        results_df: dataframe of results. Each column is a different agg-type.
+    """
     
     return post_experiment_test_grad(tl, "epochs", ( testloss_dummy, ), ["test loss"], 
                                      kfold_aggfuncs, kfold_columns, expected_ndims = 1)
@@ -214,77 +300,131 @@ def post_experiment_test_testpreds(tps : torch.Tensor, over : str = "test_sample
                           test_suite : tuple[Callable, ...] = (), test_columns : list[str] = [], 
                           kfold_aggfuncs : tuple[Callable, ...] = (arithmetic_mean,), 
                           kfold_columns : list[str] = ["mean"]) -> pd.DataFrame :
+    
+    """
+    Same as post_experiment_test_grad, but for test predictions (testpreds). Identical logic.
+    
+    Returns:
+        result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
+    """
         
     return post_experiment_test_grad(tps, over, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
 
+ 
 
+def complete_activation_test(exp_params : experimentParams, verbose : bool = False) -> dict[tuple[str,str,str], pd.DataFrame] :
+    
+    """
+    Orchestrator / god function to perform entire experiment, from training to kfold and testing given a set of 
+    experimentParams. Designed to minimise boilerplate and facilitate ease of use + modularity. 
+    
+    Params:
+        exp_params: the experimentParams dataclass containing all important data about the experiment. 
+        verbose: boolean detailing whether to provide details over current execution cycle.
 
-def complete_activation_test(exp_params : experimentParams, 
-                             categories : tuple[str, ...] = ()) -> dict[tuple[str,str,str], pd.DataFrame]:
+    NOTE: if no category is specified in experimentParams, it will use all categories. Remember to add category parameters
+    to the experimentParams dataclass inside dataclass_objects.py.
     
-    category_selection = (categoryParams("grad", post_experiment_test_grad, ("epochs", "params") ),
-                          categoryParams("testloss", post_experiment_test_testloss, ("epochs", ) ),
-                          categoryParams("testpreds", post_experiment_test_testpreds, ("epochs", "test_samples") ) )
-    
-    if not categories : categories = tuple( cat_param.name for cat_param in category_selection )
-    
-    category_params = {param.name : param for param in category_selection if param.name in set(categories)}
+    Category selection is a tuple containing category parameters, each of which stores the triple combination of 
+    category name, the associated tester function over that category (not to be confused with test functions,
+    which operate directly over data (e.g mean)), and the tuple of all valid measurement types. S
 
+    Returns:
+        total_activation_dfs: a dictionary containing for each triple combination of evaluation type, category and
+        measurement type, the corresponding dataframe of all associated results. 
+        Each dataframe stores an agg-type test-type combination, e.g "('log_average', 'mean')" as a column name.
+    """
+    
+    category_params = {cat : categoryParams(cat) for cat in exp_params.categories}
+    
     n_features, n_classes = get_number_of_features_and_classes(exp_params.df_train, exp_params.labels)
 
+    # Add to these incrementally and then concatenate at the end to turn into dataframes.
     total_activation_dfs = {(eval_type, category.name, measure_type) : [] 
                             for eval_type in ("train", "test")
                             for category in category_params.values()
                             for measure_type in category.measure_types }
-
-    for activation_index, activation in enumerate( exp_params.activations ) : 
-
-        network = exp_params.network_type(activation, n_inputs = n_features, n_outputs = n_classes)
+    
+    with Progress() as progress :
+        work = progress.add_task("Experiment progress:", total = len(exp_params.activations) * len(total_activation_dfs))
         
-        activation_name =  exp_params.activation_names[activation_index] 
- 
-        r = {"train" : pd_strat_kfold_crossval(exp_params.df_train, exp_params.labels, network,
-                                                feature_transforms = exp_params.feature_transforms,
-                                                label_transforms = exp_params.label_transforms),
-             "test" : experiment_from_df(exp_params.df_train, exp_params.df_test, network, exp_params.labels, 
-                                            feature_transforms = exp_params.feature_transforms,
-                                            label_transforms = exp_params.label_transforms)}
-                
-        for eval_type, category, measure_type in total_activation_dfs :
-            
-            # No point aggregating over a single fold if it's test data; 0 variance    
-            aggfuncs = exp_params.kfold_aggfuncs if eval_type == "train" else ( arithmetic_mean, )         
-            
-            c = category_params[category]
-            data = getattr(r[eval_type], category)
+        for activation_index, activation in enumerate( exp_params.activations ) : 
 
-            results_df = c.tester(data, over = measure_type, test_suite = exp_params.test_suite, kfold_aggfuncs = aggfuncs) 
-            results_df["activation"] = activation_name
+            network = exp_params.network_type(activation, n_inputs = n_features, n_outputs = n_classes)
+            activation_name =  exp_params.activation_names[activation_index] 
             
-            total_activation_dfs[(eval_type, category, measure_type) ].append(results_df)
-          
+            net_act_str = f"[N: {network.__class__.__name__}, A: {activation.__class__.__name__}]"  
+            if verbose : print(f"Executing configuration: {net_act_str}")
+
+            # Pass in params dataclass directly because function signature may become arbitrarily long with more additions
+            r = {"train" : skf_crossval(**safe_asdict(exp_params, skf_crossval), model = network, df = exp_params.df_train),
+                 "test" : experiment_from_df(**safe_asdict(exp_params, experiment_from_df), model = network)}
+
+            for eval_type, category, measure_type in total_activation_dfs:
+                if verbose : print(f"{net_act_str} {eval_type.title()}ing on {category} data over {measure_type}")
+                
+                if eval_type == "train" :
+                    aggfuncs, aggfunc_names = exp_params.kfold_aggfuncs, exp_params.kfold_aggfunc_names
+                else : # No point aggregating over a single fold if it's test data; 0 variance    
+                    nameof_arithmetic_mean = exp_params.kfold_aggfunc_names[exp_params.kfold_aggfuncs.index(arithmetic_mean)]
+                    aggfuncs, aggfunc_names = ((arithmetic_mean,), [nameof_arithmetic_mean])
+                  
+                # Get the correct category params dataclass object, then get the data to evaluate - either train or test
+                c = category_params[category]
+                data = getattr(r[eval_type], category) 
+                # r[eval_type] gets the right object from r ("train" vs "test"), then select the right data 
+                # from the experimentResult r
+
+                results_df = c.tester(data, over = measure_type, test_suite = exp_params.test_suite, 
+                                      kfold_aggfuncs = aggfuncs, kfold_columns = aggfunc_names) 
+                results_df["activation"] = activation_name # So we can keep track
+            
+                total_activation_dfs[(eval_type, category, measure_type)].append(results_df)
+                progress.advance(work, 1)
+
+    # Only concat at the end for speed
     total_activation_dfs = {df_type : pd.concat(df) for df_type, df in total_activation_dfs.items()}
     
     return total_activation_dfs
 
 
+def LS_alpha_sensitivity_test(exp_params : experimentParams, verbose : bool = True) -> dict[tuple[str, str, str], pd.DataFrame] :
+    
+    """
+    Perform an alpha sensitivity test on an LS-converted activation function. Note that this implicitly assumes that
+    the function specified is already in the S function family. An LS function exists in the form
+    
+    LS_{alpha}(f(x) E S) = alpha x + (1 - alpha) ( f(x) / f'(0) ) : alpha in (0,1)
+    
+    Creates as many equally spaced alphas as specified in the experiment parameters between 0 and 1 exclusive. Then,
+    applies the standard complete activation test orchestrator function. Accepts the function from the 
+    exp_params tuple of activation functions; if there is more than one, takes the first only. 
 
-def LS_alpha_sensitivity_test(exp_params : experimentParams, n_alphas : int = 5, 
-                              categories : tuple[str,...] = ("testloss", )) -> dict[tuple[str, str, str], pd.DataFrame]:
+    Params:
+        exp_params: the experimentParams dataclass; same useage as complete_activation_test.
+        verbose: boolean detailing whether to provide details over current execution cycle.
+        categories: tuple of strings containing which categories (e.g grad, testloss, testpreds) are desired to evaluate.
+
+    Returns:
+        total_activation_dfs: a dictionary containing for each triple combination of evaluation type, category and
+        measurement type, the corresponding dataframe of all associated results. 
+        Each dataframe stores an agg-type test-type combination, e.g "('log_average', 'mean')" as a column name.
+    """
     
     if len(exp_params.activations) != 1 :
         print(f"Got more than 1 activation for sensitivity test; using first choice. Please select only one.")
     
     base_activation = exp_params.activations[0] 
     
-    alphas = np.linspace(0, 1, n_alphas)
+    # Measuring alpha selection over entire domain - equal spacing for most representative results
+    alphas = np.linspace(0, 1, exp_params.n_alphas)
     activations = []
     activation_names = []
     
-    for alpha in alphas : 
+    for alpha in alphas.tolist() : 
         
-        activation = LS(base_activation, alpha, learnable =  False)     
-        activation_name = f"$\\alpha ={alpha:.2f}$"
+        activation = LS(base_activation, alpha, learnable = False)     
+        activation_name = f"$\\alpha ={alpha:.2f}$" # So we can read it from the plot
         
         activations.append(activation)
         activation_names.append(activation_name)
@@ -293,4 +433,6 @@ def LS_alpha_sensitivity_test(exp_params : experimentParams, n_alphas : int = 5,
                                     activations = activations,
                                     activation_names = activation_names)
     
-    return complete_activation_test(new_experiment_params, categories = categories)
+    return complete_activation_test(new_experiment_params, verbose = verbose)
+
+

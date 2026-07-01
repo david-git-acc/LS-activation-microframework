@@ -13,18 +13,10 @@ from networks import *
 from helpers import *
 from typing import Any, Callable
 
-df = pd.read_csv("datasets/penguins.csv", index_col = 0)
-
 # SELECT MEASURING DEVICES HERE
 activations = ( IPLo(), nn.Tanh() )
 features = ["bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g"] # Must be numeric
 labels = ["sex"] # Must be categorical
-
-# Cheap hack to avoid having to specify manual names
-names = tuple( activation.__class__.__name__ for activation in activations )
-test_suite = (variance, log_average, arithmetic_mean )
-n_classes = max(2, len( df[labels].value_counts()))
-aggfuncs = ( arithmetic_mean, variance )
 
 # Hyperparameters
 epochs = 500
@@ -34,7 +26,3 @@ lr = 0.005
 sample_rate = 1
 kfold_k = 10
 
-# Fix seeds for reproducibility
-torch.manual_seed(seed)
-np.random.seed(seed)
-random.seed(seed)

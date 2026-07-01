@@ -2,4 +2,4 @@ venv
 __pycache__
 datasets/*
 legacy_code
-data-*
+exp-*

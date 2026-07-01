@@ -28,7 +28,8 @@ class ShortNetwork(ActivationNetwork) :
             activation,
             nn.Linear(10, 5),
             activation,
-            nn.Linear(5, n_outputs)
+            nn.Linear(5, n_outputs),
+            activation
         )
         
         super().__init__(activation, structure, n_inputs, n_outputs)

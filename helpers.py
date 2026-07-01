@@ -5,10 +5,12 @@ import numpy as np
 from torch.nn.utils import parameters_to_vector
 from sklearn.compose import ColumnTransformer
 from typing import Any, Callable
-import matplotlib.pyplot as plt
 import hashlib
 import json
 from pathlib import Path
+import inspect
+from dataclasses import asdict
+from matplotlib import pyplot as plt
 
 def get_name(obj : Any) -> str :
     
@@ -137,7 +139,6 @@ def validate_activation_df_column_names(test_suite : list[Callable] | tuple[Call
     
     col_length_diff =  len(test_suite) - len(test_columns) 
     backup_column_names = [get_name(func) for func in test_suite] # If not enough column names provided
-    updated_test_columns = []
     
     # If no column names provided at all, use the default names
     if not test_columns :
@@ -199,10 +200,10 @@ def get_number_of_features_and_classes(df : pd.DataFrame, labels : str | list[st
     
     return n_features, n_classes
 
-def generate_savefolder(dfs : pd.DataFrame | dict[tuple[str,str,str] , pd.DataFrame], maxlen : int = 10) -> str :
+def generate_savefolder_pd(dfs : pd.DataFrame | dict[tuple[str,str,str] , pd.DataFrame], maxlen : int = 10) -> str :
     
     if isinstance(dfs, pd.DataFrame) :
-        dfs = {("bleh", "foo this", "ahh, wire!") : dfs}
+        dfs = {("it's coming to a close", "Hyper Infrasonic Relocation Oscillator", "(I'm not going away)*3") : dfs}
     
     
     strformat = {str(k) : sorted( [ str(x) for x in v.columns ] ) for k, v in dfs.items()}
@@ -217,3 +218,93 @@ def create_path(pathname : str) -> None :
     path = Path(pathname)
     
     path.mkdir(parents = True, exist_ok = True)
+    
+def determine_plot_type(eval_type, category, measure_type) -> str :
+    
+    if measure_type == "epochs" :
+        return "curve"
+    elif eval_type == "train" : 
+        return "histplot"
+    else :
+        return "kde"
+
+def safe_asdict(config_dataclass, func) :
+    """
+    Returns a dictionary of parameters that the target function 
+    actually accepts, filtered from the dataclass.
+    """
+    
+    params = asdict(config_dataclass)
+    sig = inspect.signature(func)
+    # Return only keys that exist as valid arguments in the function signature
+    return {k: v for k, v in params.items() if k in sig.parameters}
+
+def sampling_indices(n : int, max_samples : int) -> list[int] :
+    
+    max_samples = min(max_samples, n)
+    
+    return np.round(np.linspace(0, n - 1, max_samples)).astype(int).tolist()
+    
+def get_n_colours(n : int, cmap : str = "viridis" ) -> list :
+    
+    cmap_function = plt.get_cmap(cmap)
+    
+    c_range = np.linspace(0, 1, n)
+    
+    return cmap_function(c_range).tolist()
+
+def dummy_idfunc(x : Any) : return x
+
+def category2measure_types(category : str) -> tuple[str, ...] :
+    
+    mapping = {
+        "grad" : ("epochs", "params"),
+        "testloss" : ("epochs",),
+        "testpreds" : ("epochs", "test_samples")
+    }
+    
+    return mapping[category]
+
+def safe_set_params(obj, params_dict) -> None : 
+    
+    if not hasattr(obj, "default_params") or not isinstance(obj.default_params, dict) :
+        raise AttributeError(f"Object {obj} must have default_params dictionary attribute")
+    
+    for k, v in params_dict.items() :
+        if k in obj.default_params : 
+            setattr(obj, k, v)
+        else : 
+            raise ValueError(f"Attempted to assign value to non-optional attribute {k}")
+        
+def instantiate_default_params(obj) -> dict[str, Any] :
+    
+    default_params = {}
+    
+    for attr, val in obj.__dict__.items() : 
+        
+        if attr.startswith("_") :
+            default_params[attr] = val
+    
+    return default_params
+
+def is_hashable(val : Any) -> bool :
+    return isinstance(val, (int, float, str, list, tuple, dict))
+
+def smart_str(x : Any) -> str :
+    
+    mapping = {
+        "str" : lambda x : str(x), 
+        "list" : lambda x : ", ".join([smart_str(y) for y in x]),
+        "dict" : lambda x : smart_str([smart_str(k) + " : " + smart_str(v) for k, v in sorted(x.items())]),
+        "tuple" : lambda x : ", ".join([smart_str(y) for y in x]),
+        "int" : lambda x : str(x),
+        "float" : lambda x : f"{x:.4f}"
+     }
+    
+    x_name = type(x).__name__
+    
+    mapped = mapping.get(x_name, None)
+    
+    if mapped is None : return x_name
+    return mapped(x)
+    

@@ -9,7 +9,7 @@ from dataclass_objects import *
 import matplotlib
 from rich.progress import Progress
 
-matplotlib.use('Agg') # No interactive window, purely file-based rendering
+# matplotlib.use('Agg') # No interactive window, purely file-based rendering
 
 def populate_axes(ax, ax_params : dict[str, Any]) -> None :
 
@@ -128,8 +128,8 @@ def plot_actexp_figure_data(xvp : expVisParams, results_df : pd.DataFrame,
             if verbose : print(f"{test_agg_str} Plotting activation {activation_name}")
             activation_data = activation_groups.get_group(activation_name)
 
-            x = ax_params["xticklabels"][ax_params["nskip"] : ]
-            y = activation_data[(test_type, agg_type)][ax_params["nskip"] : ]
+            x = ax_params["xticklabels"][ax_params["nskip"]: ]
+            y = activation_data[(test_type, agg_type)][ax_params["nskip"]: ]
             
             plot_params = xvp.generate_plot_params(activation_name, agg_type, plot_type)
             plot_activation(x, y, ax, plot_params)
@@ -139,7 +139,7 @@ def plot_actexp_figure_data(xvp : expVisParams, results_df : pd.DataFrame,
     plt.suptitle(figure_data["title"], fontsize = "xx-large")
     plt.tight_layout()
     plt.savefig(f"{xvp.save_folder}/figures/{figure_data['savename']}.png")
-    del fig, axes
+    plt.close("all")
     
     
 def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp : experimentParams,

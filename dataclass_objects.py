@@ -6,7 +6,7 @@ import torch
 from torch import nn
 from helpers import (validate_activation_df_column_names, sampling_indices, get_n_colours, dummy_idfunc, 
                      category2measure_types, determine_plot_type, generate_plot_title, safe_set_params, arithmetic_mean,
-                     instantiate_default_params, is_hashable, smart_str)
+                     is_hashable, smart_str)
 import matplotlib.lines as mlines
 import json
 import hashlib
@@ -16,6 +16,61 @@ from itertools import product
 
 @dataclass
 class experimentParams() :
+    
+    """
+    Main dataclass for conducting activation experiments efficiently. This dataclass is designed
+    to compare the effectiveness of different activation functions on a given network using a set of 
+    test functions (test_suite) to marginalise unwanted dimensions and compare 1D arrays of results.
+    
+    Params:
+        df_train: dataframe for train data.
+        df_test: dataframe for test data.
+        
+        labels: list of columns that are to be predicted from features (presumed rest)
+        
+        network_type: type of neural network to work with for the experiment and perform predictions.
+        
+        loss: loss metric to judge predictions by. 
+        
+        feature_transforms: tuple of tuples, where the first entry of each tuple is the list of columns to be transformed,
+        and the second entry is the transformer class to apply the transformation to each of the columns.
+        
+        label_transforms: same as feature_transforms, but for labels.
+        
+        test_suite: tuple of test functions to apply on finished results to marginalise unwanted dimensions. 
+        activations: tuple of all activation functions to run in the experiment.
+        
+        kfold_aggfuncs: tuple of all aggregation functions to collapse folds over in K-fold crossvalidation, 
+        e.g mean, variance, etc over folds. Note for test data it's interpreted as 1-fold crossvalidation, and only 
+        mean is permitted for this.
+        
+        lr: constant learning rate. Can be changed to a variable one.
+        
+        kfold_k: number of folds to use in Kfold cross validation. 10 is the industry standard.
+        
+        n_alphas: number of different alpha values in the range (0,1) to use for LS sensitivity testing, with uniform spacing.
+        E.g n_alphas = 5 would imply the alpha values (0.0, 0.25, 0.50, 0.75, 1.0).
+        
+        batch_size: size of train set used per iteration per epoch. Higher values increase gradient accuracy at the cost of time.
+        
+        max_samples: maximum number of samples to record (does not change number of epochs). Higher values create denser graphs.
+        
+        epochs: number of total training runs to apply to the neural network, where each epoch is a full pass of df_train.
+        
+        activation_names: list of display names for the activation functions, index-linked with activations.
+
+        test_columns: list of display names for the test functions. Again, index-linked with test_suite.
+        
+        kfold_aggfunc_names: list of display names for the aggregation functions, index-linked with kfold_aggfuncs.
+        
+        features_dtype: datatype of all features. Multiple datatypes for different features are not currently supported.
+        
+        labels_dtype: same as features_dtype but for labels.
+        
+        categories: tuple of all categories to test over. Defaults to all of them if none selected.
+
+    """
+    
     df_train : pd.DataFrame
     df_test : pd.DataFrame
     labels : str | list[str]
@@ -41,6 +96,10 @@ class experimentParams() :
     
     def __post_init__(self) :
         
+        """
+        Validation of all inputs to make sure the experiment runs smoothly and every activation has a valid name.
+        """
+        
         # Placate the linter + consistency
         if isinstance(self.labels, str) : 
             self.labels = [self.labels]
@@ -55,6 +114,18 @@ class experimentParams() :
             self.kfold_aggfuncs += (arithmetic_mean, )
     
     def savename(self , maxlen : int = 10) -> str :
+        
+        """Generates a deterministic savename for each experiment based on its deterministically string-able properties.
+            For regular experiments, shows the network name, the initials of all activations used, then the signature hash.
+            For LS alpha sensitivity experiments, shows the network name, the activation, number of alphas, and the hash.
+            *Any* change in parameters or potentially the code structure itself will likely result in a different hash.
+
+        Params:
+            maxlen: defaults to 10, maximum length of the hash component.
+
+        Returns:
+            The savename for the experiment. Useful to track experiments and avoid experiment crowding in the main directory.
+        """
         
         # Salt added on end
         strformat = str([ smart_str(v) for v in self.__dict__.values() if is_hashable(v)])
@@ -72,6 +143,14 @@ class experimentParams() :
         return "exp-" + readable_metadata + "-" + hash_monstrosity[:maxlen] 
     
     def exp_vis_params(self) :
+        
+        """
+        Generates the visual parameters dataclass for this activation function. 
+
+        Returns:
+            The visual parameters dataclass, with its associated attributes and methods.
+        """
+        
         main_params = {
             "save_folder" : self.savename(),
             "activation_colours" : dict(zip(self.activation_names, 
@@ -85,12 +164,32 @@ class experimentParams() :
     
 @dataclass
 class expVisParams() :
+    
+    """
+    This is the visual parameters dataclass for a given experiment. 
+    
+    Params:
+        save_folder: save folder name for the experiment, generated by experiment.savename().
+        activation_colours: different colours for each activation function for differentiation.
+        kf_aggfunc_linestyles: different linestyles per kfold aggregation function for differentiation.
+        experiment: reference to the original experiment object that created it.
+        
+    """
+    
     save_folder : str
     activation_colours : dict[str, Any]
     kf_aggfunc_linestyles : dict[str, str]
     experiment : experimentParams
     
     def initialise_figure_params(self) -> dict[tuple[str, str, str], Any] :
+        
+        """Creates default parameters dictionary for all valid figures.
+
+        Returns:
+            A dictionary of triples, where each triple corresponds to an
+            (eval_type (train/test), category, measure_type) combination.
+            Each associated value is itself the dictionary of figure parameters for that combination.
+        """
         
         figures_dict = {}
         
@@ -105,8 +204,26 @@ class expVisParams() :
     def generate_figure_params(self, eval_type : str, category : str, measure_type : str,
                                plots_per_row : int = 3) -> dict[str, Any] :
         
+        """
+        Generate parameters dictionary for a given figure and triple (eval_type, category, measure_type).
+        
+        Params:
+            eval_type: the evaluation type (train/test) of the data. 
+            category: what type of data (gradient, testloss, test predictions, etc) is being measured.
+            measure_type: what the valid dimension (independent variable) is. Usually "epochs", but not always.
+            plots_per_row: how many plots should be represented on each given row. Defaults to 3 for appearances.
+
+        Returns:
+            dictionary of parameters for the given figure, to be plugged in during visualisation.
+        """
+        
         nrows = ceil(len(self.experiment.test_suite) / plots_per_row)
         ncols = min(plots_per_row, len(self.experiment.test_suite))
+        
+        # For testloss there are no tests we can perform, so will always be exactly 1 figure even if other tests exist
+        special_cases = { "testloss" : (1, 1) }
+        if category in special_cases : nrows, ncols = special_cases[category]
+        
         title = generate_plot_title(category, 1 if eval_type == "test" else self.experiment.kfold_k)
         plot_type = determine_plot_type(eval_type, category, measure_type)
         
@@ -126,18 +243,31 @@ class expVisParams() :
             "nplots" : nrows * ncols           
         }
         
-        
         return fig_params
     
     def generate_axes_params(self, test_type : str, fig_params : dict[str, Any], nskip: int = 5) -> dict[str, Any] :
         
-        if fig_params["plot_type"] == "curve" :
-            # Remove the "s", e.g "epochs" -> "epoch", "params" -> "param"
-            xlabel, ylabel = (fig_params["measure_type"][:-1], test_type) 
-        elif fig_params["plot_type"] in ["kde", "histplot"] :
-            xlabel, ylabel = (test_type, "frequency density")
-        else : 
-            xlabel, ylabel = ("x-axis placeholder label", "y-axis placeholder label")
+        """Generates parameters for the given axes object on a given figure.
+        
+        Params:
+            test_type: what test function the axes is for. Every axes object is for a specific test function.
+            
+            fig_params: the associated dictionary of parameters for the parent figure object. Use generate_figure_params()
+            if this is not available from the same dataclass object expVisParams.
+            
+            nskip: Number of initial epochs to skip. Only valid for epochs or ordered x-axes. 
+
+        Returns:
+            Dictionary of parameters for the given axes object.
+        """
+        
+        match fig_params["plot_type"] :
+            case "curve" :  # Remove the "s", e.g "epochs" -> "epoch", "params" -> "param"
+                xlabel, ylabel = (fig_params["measure_type"][:-1], test_type) 
+            case "kde" | "histplot" :
+                xlabel, ylabel = (test_type, "frequency density")
+            case _ :
+                xlabel, ylabel = ("x-axis placeholder label", "y-axis placeholder label")
 
         xticklabels = sampling_indices(self.experiment.epochs, self.experiment.max_samples)
         
@@ -155,6 +285,18 @@ class expVisParams() :
         return ax_params
 
     def generate_plot_params(self, activation_name : str, agg_type : str, plot_type : str) :
+        
+        """
+        Generates parameters for the given plot object for an axes object (axes itself not required).
+        
+        Params:
+            activation_name: the name of the activation to plot over (determines colour).
+            agg_type: the type of aggregation function used (determines linestyle).
+            plot_type: the type of plot (kde, curve, histplot, etc).
+
+        Returns:
+            The dictionary of associated parameters for the axes object.
+        """
         
         plot_params = {
             "activation_name" : activation_name,
@@ -208,6 +350,11 @@ class monitorParams() :
 
 @dataclass
 class experimentResult() :
+    
+    """Simple container class for efficiently representing all categories of result from an experiment. 
+        Not intended for any complex calculations, unlike experimentParams or expVisParams.
+    """
+    
     grad : torch.Tensor
     testloss : torch.Tensor
     testpreds : torch.Tensor

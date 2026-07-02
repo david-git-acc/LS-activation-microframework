@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from helpers import get_name
+from torch.nn import ReLU, Tanh
 
 class IPLo(nn.Module):
     def __init__(self):

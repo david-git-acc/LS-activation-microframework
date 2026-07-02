@@ -74,7 +74,7 @@ def plot_activation(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> Non
 
 def plot_actexp_figure_data(xvp : expVisParams, results_df : pd.DataFrame,
                             xvp_triple : tuple[str, str, str], save2csv : bool = True,
-                            nskip : int = 5, verbose : bool = True) -> None :
+                            nskip : int = 1, verbose : bool = True) -> None :
     
     """
     Given an experiment visual params dataclass, result combination type, plot the figure and all axes and curves upon it.

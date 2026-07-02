@@ -15,7 +15,6 @@ from dataclass_objects import categoryParams, experimentResult, experimentParams
 from dataclasses import replace, asdict
 import copy
 from rich.progress import Progress
-from config import seed
 
 def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor, 
                Y_train_tensor : torch.Tensor, Y_test_tensor : torch.Tensor, 
@@ -182,7 +181,7 @@ def skf_crossval(df : pd.DataFrame, model : nn.Module, labels : str | list[str],
         experimentResult: stores all folds and captured data for use. 
     """
     
-    skf = StratifiedKFold(n_splits = kfold_k, random_state = seed, shuffle = True)
+    skf = StratifiedKFold(n_splits = kfold_k, random_state = config["seed"], shuffle = True)
     
     # If we don't reload then it becomes useless
     original_network_state = copy.deepcopy(model.state_dict())

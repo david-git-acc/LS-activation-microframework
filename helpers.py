@@ -11,6 +11,27 @@ from pathlib import Path
 import inspect
 from dataclasses import asdict
 from matplotlib import pyplot as plt
+import yaml
+
+def import_config(config_saveloc : str = "config.yaml") -> dict[str, Any]:
+    
+    with open(config_saveloc, "r") as f :
+        config = yaml.safe_load(f)
+
+    return config
+
+config = import_config()
+
+
+
+
+
+
+
+
+
+
+
 
 def get_name(obj : Any) -> str :
     
@@ -307,4 +328,4 @@ def smart_str(x : Any) -> str :
     
     if mapped is None : return x_name
     return mapped(x)
-    
+

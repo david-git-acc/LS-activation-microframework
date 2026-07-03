@@ -268,7 +268,7 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
             data = collapsed_result.view(-1).numpy() # Convert to NumPy so easier to fit as a dataframe
             test_results.append(data)
             
-            df_column_name = (mp.test_columns[i], mp.kfold_columns[j])
+            df_column_name = (mp.test_function_names[i], mp.kfold_columns[j])
             df_columns.append(df_column_name)
     
     test_results = np.asarray(test_results).T # Transpose to turn features into columns
@@ -353,14 +353,14 @@ def complete_activation_test(exp_params : experimentParams, verbose : bool = Fal
             activation_name =  exp_params.activation_names[activation_index] 
             
             net_act_str = f"[N: {network.__class__.__name__}, A: {activation.__class__.__name__}]"  
-            if verbose : print(f"Executing configuration: {net_act_str}")
+            if verbose : progress.console.log(f"Executing configuration: {net_act_str}")
 
             # Pass in params dataclass directly because function signature may become arbitrarily long with more additions
             r = {"train" : skf_crossval(**safe_asdict(exp_params, skf_crossval), model = network, df = exp_params.df_train),
                  "test" : experiment_from_df(**safe_asdict(exp_params, experiment_from_df), model = network)}
 
             for eval_type, category, measure_type in total_activation_dfs:
-                if verbose : print(f"{net_act_str} {eval_type.title()}ing on {category} data over {measure_type}")
+                if verbose : progress.console.log(f" -> {eval_type.title()}ing on {category} data over {measure_type}")
                 
                 if eval_type == "train" :
                     aggfuncs, aggfunc_names = exp_params.kfold_aggfuncs, exp_params.kfold_aggfunc_names
@@ -374,7 +374,7 @@ def complete_activation_test(exp_params : experimentParams, verbose : bool = Fal
                 # r[eval_type] gets the right object from r ("train" vs "test"), then select the right data 
                 # from the experimentResult r
 
-                results_df = c.tester(data, over = measure_type, test_suite = exp_params.test_suite, 
+                results_df = c.tester(data, over = measure_type, test_suite = exp_params.test_functions, 
                                       kfold_aggfuncs = aggfuncs, kfold_columns = aggfunc_names) 
                 results_df["activation"] = activation_name # So we can keep track
             

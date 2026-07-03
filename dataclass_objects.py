@@ -20,7 +20,7 @@ class experimentParams() :
     """
     Main dataclass for conducting activation experiments efficiently. This dataclass is designed
     to compare the effectiveness of different activation functions on a given network using a set of 
-    test functions (test_suite) to marginalise unwanted dimensions and compare 1D arrays of results.
+    test functions (test_functions) to marginalise unwanted dimensions and compare 1D arrays of results.
     
     Params:
         df_train: dataframe for train data.
@@ -37,7 +37,7 @@ class experimentParams() :
         
         label_transforms: same as feature_transforms, but for labels.
         
-        test_suite: tuple of test functions to apply on finished results to marginalise unwanted dimensions. 
+        test_functions: tuple of test functions to apply on finished results to marginalise unwanted dimensions. 
         activations: tuple of all activation functions to run in the experiment.
         
         kfold_aggfuncs: tuple of all aggregation functions to collapse folds over in K-fold crossvalidation, 
@@ -59,7 +59,7 @@ class experimentParams() :
         
         activation_names: list of display names for the activation functions, index-linked with activations.
 
-        test_columns: list of display names for the test functions. Again, index-linked with test_suite.
+        test_function_names: list of display names for the test functions. Again, index-linked with test_functions.
         
         kfold_aggfunc_names: list of display names for the aggregation functions, index-linked with kfold_aggfuncs.
         
@@ -78,8 +78,8 @@ class experimentParams() :
     loss : nn.Module
     feature_transforms : tuple[tuple[list[str], Any]]
     label_transforms : tuple[tuple[list[str], Any]]
-    test_suite : tuple[Callable, ...]
-    activations : tuple[nn.Module, ...]
+    test_functions : tuple[Callable, ...]
+    activations : list[nn.Module] | tuple[nn.Module, ...]
     kfold_aggfuncs : tuple[Callable, ...]
     lr : float = 0.001
     kfold_k : int = 10
@@ -88,7 +88,7 @@ class experimentParams() :
     max_samples : int = -1 # no limit
     epochs : int = 500
     activation_names : list[str] = field(default_factory = list)
-    test_columns : list[str] = field(default_factory = list)
+    test_function_names : list[str] = field(default_factory = list)
     kfold_aggfunc_names : list[str] = field(default_factory = list)
     features_dtype : torch.dtype = torch.float32
     labels_dtype : torch.dtype = torch.long
@@ -100,11 +100,17 @@ class experimentParams() :
         Validation of all inputs to make sure the experiment runs smoothly and every activation has a valid name.
         """
         
+        # YAML doesn't support tuples so convert in the program
+        for potentially_list_attribute in ( "activations", "test_functions", "kfold_aggfuncs" ) :
+            attr = getattr(self, potentially_list_attribute)
+            if not isinstance(attr, tuple) :
+                setattr(self, potentially_list_attribute, tuple(attr))
+        
         # Placate the linter + consistency
         if isinstance(self.labels, str) : 
             self.labels = [self.labels]
 
-        self.test_columns = validate_activation_df_column_names(self.test_suite, self.test_columns)
+        self.test_function_names = validate_activation_df_column_names(self.test_functions, self.test_function_names)
         self.activation_names = validate_activation_df_column_names(self.activations, self.activation_names)
         self.kfold_aggfunc_names = validate_activation_df_column_names(self.kfold_aggfuncs, self.kfold_aggfunc_names)
         
@@ -217,8 +223,8 @@ class expVisParams() :
             dictionary of parameters for the given figure, to be plugged in during visualisation.
         """
         
-        nrows = ceil(len(self.experiment.test_suite) / plots_per_row)
-        ncols = min(plots_per_row, len(self.experiment.test_suite))
+        nrows = ceil(len(self.experiment.test_functions) / plots_per_row)
+        ncols = min(plots_per_row, len(self.experiment.test_functions))
         
         # For testloss there are no tests we can perform, so will always be exactly 1 figure even if other tests exist
         special_cases = { "testloss" : (1, 1) }
@@ -329,14 +335,14 @@ class categoryParams() :
 @dataclass
 class monitorParams() :
     X : torch.Tensor
-    test_suite : tuple[Callable, ...]
-    test_columns : str | list[str]
+    test_functions : tuple[Callable, ...]
+    test_function_names : str | list[str]
     kfold_aggfuncs :  tuple[Callable, ...]
     kfold_columns : str | list[str]
     
     def validate(self, expected_ndims : int = 2) :
         
-        if not isinstance(self.test_columns, list) : self.test_columns = [self.test_columns]
+        if not isinstance(self.test_function_names, list) : self.test_function_names = [self.test_function_names]
         if not isinstance(self.kfold_aggfuncs, tuple) : self.kfold_aggfuncs = ( self.kfold_aggfuncs, )
         if not isinstance(self.kfold_columns, list) : self.kfold_columns = [self.kfold_columns]
         
@@ -345,7 +351,7 @@ class monitorParams() :
         # If it's test data then there are no folds, so to avoid having to duplicate this function we add a dummy one
         if is_test_data : self.X = self.X[..., None]
 
-        self.test_columns = validate_activation_df_column_names(self.test_suite, self.test_columns)
+        self.test_function_names = validate_activation_df_column_names(self.test_functions, self.test_function_names)
         self.kfold_columns = validate_activation_df_column_names(self.kfold_aggfuncs, self.kfold_columns)
 
 @dataclass

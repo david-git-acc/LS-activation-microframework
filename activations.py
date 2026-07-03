@@ -1,7 +1,8 @@
 import torch
 from torch import nn
-from helpers import get_name
+from helpers import get_name, config, update_config
 from torch.nn import ReLU, Tanh
+
 
 class IPLo(nn.Module):
     def __init__(self):
@@ -63,3 +64,12 @@ class LS(nn.Module) :
         out = a * X + (1-a) * ( self.base_activation(X) / self.f_prime_0 )
         
         return out
+    
+
+# Necessary
+registered_activations = { 
+    "iplo" : IPLo(),
+    "tanh" : nn.Tanh(),
+    "relu" : nn.ReLU()
+}
+update_config(registered_activations, config, "activations")

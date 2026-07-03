@@ -1,15 +1,13 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from math import ceil
 import seaborn as sns
 from helpers import *
-from config import kfold_k
 from dataclass_objects import *
 import matplotlib
 from rich.progress import Progress
 
-# matplotlib.use('Agg') # No interactive window, purely file-based rendering
+matplotlib.use('Agg') # No interactive window, purely file-based rendering
 
 def populate_axes(ax, ax_params : dict[str, Any]) -> None :
 
@@ -170,7 +168,7 @@ def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp
         work = progress.add_task("Visualisation progress:", total = len(results) )
         
         for eval_type, category, measure_type in results :
-            print(f"Visualising {eval_type} results on {category} data measured over {measure_type}.")
+            progress.console.log(f" -> Visualising {eval_type} results on {category} data measured over {measure_type}.")
             
             total_activation_df = results[(eval_type, category, measure_type)]
             plot_actexp_figure_data(xvp, total_activation_df, (eval_type, category, measure_type), 

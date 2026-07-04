@@ -12,13 +12,13 @@ from helpers import *
 from typing import Any, Callable, Type
 from visualisation import *
 from dataclass_objects import categoryParams, experimentResult, experimentParams, monitorParams
-from dataclasses import replace, asdict
+from dataclasses import replace
 import copy
 from rich.progress import Progress
 
 def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor, 
                Y_train_tensor : torch.Tensor, Y_test_tensor : torch.Tensor, 
-               my_model : nn.Module, my_loss : nn.Module = nn.CrossEntropyLoss(),
+               my_model : ActivationNetwork, my_loss : nn.Module = nn.CrossEntropyLoss(),
                epochs : int = 500, lr : float = 0.001, 
                batch_size : int = -1, max_samples : int = -1) -> experimentResult : 
     
@@ -50,57 +50,48 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
     training_dataset = TensorDataset(X_train_tensor, Y_train_tensor)
     training_dataloader = DataLoader(training_dataset, batch_size, shuffle = True )
     
-    optim = torch.optim.Adam(my_model.parameters(), lr=lr)
-    nabla = torch.zeros_like(grad2vector(my_model.parameters()))
+    optim = torch.optim.Adam(my_model.parameters(), lr = lr)
+    nabla = torch.zeros_like(params2grad_vector(my_model.parameters()))
     
     n = min(max_samples, epochs) if max_samples > 0 else epochs
     record_epochs = set(sampling_indices(epochs, n))
     
     # Initialise as nan for debugging; can see where was not populated
-    gradient_matrix = torch.nan * torch.ones(size = (n, len(nabla)))
-    test_loss = torch.nan * torch.ones(n)
-    test_predictions = torch.nan * torch.ones(size = (n, len(Y_test_tensor)))
+    gradient_matrix = torch.full(size = (n, len(nabla)), fill_value = torch.nan)
+    test_loss = torch.full(size = (n,), fill_value = torch.nan)
+    test_predictions = torch.full(size = (n, len(Y_test_tensor)), fill_value = torch.nan) 
     
     record_index = 0
-    for i in range(epochs) :
+    for epoch in range(epochs) :
         my_model.train()
-        
-        # Stop accumulating gradient
-        nabla = torch.zeros_like(nabla)
-        
+                
         for X_train_batch, Y_train_batch in training_dataloader :
-            
             optim.zero_grad()
             predictions = my_model(X_train_batch)
-            loss = my_loss(predictions, Y_train_batch)
+            loss : torch.Tensor = my_loss(predictions, Y_train_batch)
             loss.backward()
-            
-            # Average nabla
-            current_nabla = grad2vector(my_model.parameters()).detach()
-            nabla += current_nabla
-        
             optim.step()
             
-        # Recompute nabla after optimisation
-        nabla /= len(training_dataloader)
-        
         my_model.eval()
         with torch.no_grad() :
-            if i not in record_epochs : continue
-            
+            if epoch not in record_epochs : continue
+              
+            # Recompute nabla after optimisation
+            nabla = params2grad_vector(my_model.parameters()).detach().cpu()
             test_predictions_torch = my_model(X_test_tensor)
             outs = torch.argmax(test_predictions_torch, dim = 1) # maximum over columns, so we get a 1D vector of predictions
-            
+
             gradient_matrix[record_index, :] = nabla
             test_loss[record_index] = my_loss(test_predictions_torch, Y_test_tensor).item()
             test_predictions[record_index, :] = outs.view(-1)  
+            
             record_index += 1 
             
-    # gm = 2D (epochs, parameters), TL = 1D (epochs), TP = 2D (epochs, n_test)
+    # gm = 2D (epochs, parameters), AL = 3D (epochs, layers, neurons), TL = 1D (epochs), TP = 2D (epochs, n_test)
     return experimentResult(gradient_matrix, test_loss, test_predictions)
 
 
-def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : nn.Module,
+def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : ActivationNetwork,
                        labels : str | list[str], loss : nn.Module = nn.CrossEntropyLoss(),
                        feature_transforms : tuple[tuple[list[str], Any], ...] = (),
                        label_transforms : tuple[tuple[list[str], Any], ...] = (),
@@ -149,7 +140,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
 
         
         
-def skf_crossval(df : pd.DataFrame, model : nn.Module, labels : str | list[str], 
+def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | list[str], 
                             loss : nn.Module,
                             feature_transforms : tuple[tuple[list[str], Any], ...] = (), 
                             label_transforms : tuple[tuple[list[str], Any], ...] = (),
@@ -188,8 +179,8 @@ def skf_crossval(df : pd.DataFrame, model : nn.Module, labels : str | list[str],
     
     n = min(epochs, max_samples) if max_samples > 0 else epochs
     gradient_matrices = [] # Store as list because we don't know parameters size yet
-    kfold_loss = torch.ones(size = (n, kfold_k))
-    kfold_tps = torch.nan * torch.ones(size = (n, len(df), kfold_k)) 
+    kfold_loss = torch.full(size = (n, kfold_k), fill_value = torch.nan)
+    kfold_tps = torch.full(size = (n, len(df), kfold_k), fill_value = torch.nan) 
     # Kfolds have slightly different sizes - standardise to same n_samples size, then 
     # initialise all as NaN so we can filter them out later in metric calculation
 
@@ -257,9 +248,11 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
     # Store the column names in a given format so easier to store
     df_columns = []
     
-    for i, test_func in enumerate( test_suite ) :
-        result = test_func(mp.X, dim = dim)
+    # For each test function we compute the result and collapse all other dimensions using it, to get a 2D array (dim, folds)
+    for i, test_func in enumerate( test_suite ) : 
+        result = test_func(mp.X, dim = dim) # Make sure all test suite functions is NaN-aware + can handle any subset of dims
         
+        # Then we collapse the fold dimension in different ways; these are important, will be covered later.
         for j, kfold_aggfunc in enumerate( mp.kfold_aggfuncs ) :
         
             kfold_dim = len(result.size()) - 1

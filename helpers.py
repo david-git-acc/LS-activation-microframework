@@ -89,13 +89,37 @@ class PandasDataset(Dataset) :
         
         return (x, y)
 
-def grad2vector(params) -> torch.Tensor :
+def params2grad_vector(params) -> torch.Tensor :
     # Params must be iterable - a list or iterator
 
     grad_vector = parameters_to_vector([p.grad if p.grad is not None 
                                         else torch.zeros_like(p) for p in params])
     
     return grad_vector
+
+def activations2tensor_2d(activation_outs : list[torch.Tensor]) -> torch.Tensor :
+    
+    # Marginalise out the batch dimension, don't care about individual samples and never will
+    refined_activation_outs = [torch.nanmean(layer_activation.detach().cpu(), dim = 0) for layer_activation in activation_outs]
+    
+    # Width is the MAX width, pad the rest with nans
+    width = max([layer.size()[0] for layer in refined_activation_outs])
+    
+    # Each row is a layer of the network, each column corresponds to a neuron in that layer
+    activation_subtensor = torch.full(size = (len(activation_outs), width ), fill_value = torch.nan)
+
+    for layer_index, activation_layer in enumerate( refined_activation_outs ) :
+        activation_subtensor[layer_index, 0:len(activation_layer)] = activation_layer
+        
+    return activation_subtensor
+
+def activations2tensor_1d(activation_outs : list[torch.Tensor]) -> torch.Tensor :
+    # Same as above but also marginalise over layers AND neurons
+    refined_activation_outs = [torch.nanmean(layer_activation.detach().cpu(), dim = (0,1)).item()
+                               for layer_activation in activation_outs]
+    
+    return torch.tensor(refined_activation_outs)
+
 
 def pd_data_transformer(transform_list : tuple[tuple[list[str], Any], ...]) -> ColumnTransformer :
 

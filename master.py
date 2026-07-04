@@ -3,7 +3,7 @@ from activations import *
 from activation_testing import *
 from dataclass_objects import experimentParams
 from visualisation import plot_activation_tests
-from helpers import df, df_train, df_test
+from helpers import df, df_train, df_test, config
     
 ##################### CODE #####################
 
@@ -22,6 +22,7 @@ experiment_params = experimentParams(
                         nn.CrossEntropyLoss(),
                         feature_transforms = feature_transforms,
                         label_transforms = label_transforms,
+                        epochs = config["epochs"],
                         activations = config["activations"],
                         activation_names = config["activation_names"],
                         test_functions = config["test_functions"],

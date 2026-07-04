@@ -74,7 +74,7 @@ class experimentParams() :
     df_train : pd.DataFrame
     df_test : pd.DataFrame
     labels : str | list[str]
-    network_type : type[nn.Module]
+    network_type : type[ActivationNetwork]
     loss : nn.Module
     feature_transforms : tuple[tuple[list[str], Any]]
     label_transforms : tuple[tuple[list[str], Any]]
@@ -364,7 +364,7 @@ class experimentResult() :
     grad : torch.Tensor
     testloss : torch.Tensor
     testpreds : torch.Tensor
-    
+
     def get_ndims(self) -> dict[str, int] :
         
         ndims = { name : len(x.size()) for name, x in self.__dict__.items() if isinstance(x, torch.Tensor)}

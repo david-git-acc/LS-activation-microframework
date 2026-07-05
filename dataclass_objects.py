@@ -1,21 +1,22 @@
-from dataclasses import dataclass, asdict, fields, field
+from dataclasses import dataclass, field
 import pandas as pd
-from networks import ActivationNetwork
 from typing import Any, Callable
 import torch
 from torch import nn
-from helpers import (validate_activation_df_column_names, sampling_indices, get_n_colours, dummy_idfunc, 
-                     category2measure_types, determine_plot_type, generate_plot_title, safe_set_params, arithmetic_mean,
-                     is_hashable, smart_str)
 import matplotlib.lines as mlines
 import json
 import hashlib
 from math import ceil
-from itertools import product
+
+# CUSTOM
+from networks import ActivationNetwork
+from helpers import (validate_activation_df_column_names, sampling_indices, get_n_colours, dummy_idfunc, 
+                      determine_plot_type, generate_plot_title, safe_set_params, arithmetic_mean,
+                     is_hashable, smart_str)
 
 
 @dataclass
-class experimentParams() :
+class expConfigParams() :
     
     """
     Main dataclass for conducting activation experiments efficiently. This dataclass is designed
@@ -114,7 +115,7 @@ class experimentParams() :
         self.activation_names = validate_activation_df_column_names(self.activations, self.activation_names)
         self.kfold_aggfunc_names = validate_activation_df_column_names(self.kfold_aggfuncs, self.kfold_aggfunc_names)
         
-        # Mean is non-optional for experimentParams, we need it for when we collect results over test data
+        # Mean is non-optional for expConfigParams, we need it for when we collect results over test data
         if arithmetic_mean not in self.kfold_aggfuncs :
             self.kfold_aggfunc_names.append("mean")
             self.kfold_aggfuncs += (arithmetic_mean, )
@@ -185,7 +186,7 @@ class expVisParams() :
     save_folder : str
     activation_colours : dict[str, Any]
     kf_aggfunc_linestyles : dict[str, str]
-    experiment : experimentParams
+    experiment : expConfigParams
     
     def initialise_figure_params(self) -> dict[tuple[str, str, str], Any] :
         
@@ -316,21 +317,6 @@ class expVisParams() :
         }
         
         return plot_params
-
-@dataclass
-class categoryParams() :
-    name : str
-    tester : Callable = dummy_idfunc
-    measure_types : tuple[str, ...] = ()
-    
-    def __post_init__(self) :
-        
-        self.measure_types = category2measure_types(self.name)
-        
-        # I hate that this is necessary, but there is no other way to get this to work without fusing .py files
-        if self.tester.__name__ == "dummy_idfunc":
-            import activation_testing
-            self.tester = getattr(activation_testing, "post_experiment_test_" + self.name)
     
 @dataclass
 class monitorParams() :
@@ -358,7 +344,7 @@ class monitorParams() :
 class experimentResult() :
     
     """Simple container class for efficiently representing all categories of result from an experiment. 
-        Not intended for any complex calculations, unlike experimentParams or expVisParams.
+        Not intended for any complex calculations, unlike expConfigParams or expVisParams.
     """
     
     grad : torch.Tensor
@@ -383,3 +369,41 @@ class experimentResult() :
 
 
 
+
+
+
+
+@dataclass
+class categoryParams() :
+    name : str
+    tester : Callable = dummy_idfunc
+    measure_types : tuple[str, ...] = ()
+           
+    def get_tester(self) :
+        
+        # I hate that this is necessary, but there is no other way to get this to work without fusing .py files
+        if self.tester.__name__ == "dummy_idfunc":
+            import activation_testing
+            self.tester = getattr(activation_testing, "post_experiment_test_" + self.name)
+        
+        return self.tester
+        
+
+
+# When adding any new category, please instantiate and specify all parameters here to avoid data redundancy
+# Also, keep it in keyword argument format even if not necessary, for clarity
+category_registry : dict[str, categoryParams] = {
+    "grad" : categoryParams(name = "grad", 
+                            measure_types = ("epochs", "params"),
+                            ),
+    "testloss" : categoryParams(name = "testloss", 
+                                measure_types = ("epochs",),
+                                ),
+    "testpreds" : categoryParams(name = "testpreds", 
+                                 measure_types = ("epochs", "test_samples"),
+                                 )
+}
+
+def category2measure_types(category : str) -> tuple[str, ...] :
+    
+    return category_registry[category].measure_types

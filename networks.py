@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from torch import nn
-from typing import Callable
 import torch
 
 class ActivationNetwork(ABC, nn.Module) :

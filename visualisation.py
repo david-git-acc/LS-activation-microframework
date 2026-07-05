@@ -2,10 +2,12 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from helpers import *
-from dataclass_objects import *
 import matplotlib
 from rich.progress import Progress
+
+# CUSTOM
+from dataclass_objects import *
+from helpers import *
 
 matplotlib.use('Agg') # No interactive window, purely file-based rendering
 
@@ -78,7 +80,7 @@ def plot_actexp_figure_data(xvp : expVisParams, results_df : pd.DataFrame,
     Given an experiment visual params dataclass, result combination type, plot the figure and all axes and curves upon it.
     
     Params:
-        xvp: the experiment visual params object, generated from experimentParams.
+        xvp: the experiment visual params object, generated from expConfigParams.
         
         results_df: dataframe of findings, extracted from main total_activations_df via the xvp triple over
         (eval_type, category, measure_type). Should already be extracted before using this code; do not pass in TAD.
@@ -140,24 +142,24 @@ def plot_actexp_figure_data(xvp : expVisParams, results_df : pd.DataFrame,
     plt.close("all")
     
     
-def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp : experimentParams,
+def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp : expConfigParams,
                           verbose : bool = True) -> None :
 
     """
-    Plot all figures from the total results dataframe, given experimentParams used to generate said results.
+    Plot all figures from the total results dataframe, given expConfigParams used to generate said results.
     
     Params:
         results: dictionary of Pandas dataframes, each of which stores results over 
         a given (eval_type, category, measure_type) combination. Each combination requires its own figure.
         
-        xp: experimentParams object used to generate results, usually via complete_activation_test. This 
+        xp: expConfigParams object used to generate results, usually via complete_activation_test. This 
         is immediately discarded to create the experimentVisualParams.
         
         verbose: whether to show detailed work-in-progress for plotting.
     
     """
 
-    # In theory could swap experimentParams as input arg for xvp directly, but more clear this way
+    # In theory could swap expConfigParams as input arg for xvp directly, but more clear this way
     xvp = xp.exp_vis_params()
     print(f"Save folder created at: {xvp.save_folder}")
 

@@ -1,20 +1,19 @@
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import Dataset, TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold
-import matplotlib.pyplot as plt
-import random
-from activations import *
-from networks import *
-from helpers import *
-from typing import Any, Callable, Type
-from visualisation import *
-from dataclass_objects import categoryParams, experimentResult, experimentParams, monitorParams
+from typing import Any, Callable
 from dataclasses import replace
 import copy
 from rich.progress import Progress
+
+# CUSTOM
+from helpers import *
+from dataclass_objects import experimentResult, expConfigParams, monitorParams, category_registry
+from networks import ActivationNetwork
+from activations import LS
 
 def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor, 
                Y_train_tensor : torch.Tensor, Y_test_tensor : torch.Tensor, 
@@ -24,7 +23,7 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
     
     """
     Main experiment code for the project. Takes in tensors, model, loss, and metadata and returns result as a
-    simple experimentResult dataclass for ease of use. Ideal for passing in experimentParams dataclass as input.
+    simple experimentResult dataclass for ease of use. Ideal for passing in expConfigParams dataclass as input.
     Main driver function for multiple experiment classes; never remove functionality from this, only add.
     
     Params:
@@ -100,7 +99,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
     
     """
     Same as experiment() but taken directly from the dataframe to minimise boilerplate code. Also excellent for 
-    adapting with experimentParams() dataclass. 
+    adapting with expConfigParams() dataclass. 
 
     Params: 
         df_train: Dataframe containing train data.
@@ -150,7 +149,7 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
     
     """
     Perform Stratified K-Fold (SKF) cross-validation on a dataframe. Highly compatible with 
-    experimentParams() dataclass using safe_asdict helper function. 
+    expConfigParams() dataclass using safe_asdict helper function. 
     
     Params:
         df: the dataframe to perform SKF with. Please ensure no test samples are stored here.
@@ -304,18 +303,18 @@ def post_experiment_test_testpreds(tps : torch.Tensor, over : str = "test_sample
 
  
 
-def complete_activation_test(exp_params : experimentParams, verbose : bool = False) -> dict[tuple[str,str,str], pd.DataFrame] :
+def complete_activation_test(exp_params : expConfigParams, verbose : bool = False) -> dict[tuple[str,str,str], pd.DataFrame] :
     
     """
     Orchestrator / god function to perform entire experiment, from training to kfold and testing given a set of 
-    experimentParams. Designed to minimise boilerplate and facilitate ease of use + modularity. 
+    expConfigParams. Designed to minimise boilerplate and facilitate ease of use + modularity. 
     
     Params:
-        exp_params: the experimentParams dataclass containing all important data about the experiment. 
+        exp_params: the expConfigParams dataclass containing all important data about the experiment. 
         verbose: boolean detailing whether to provide details over current execution cycle.
 
-    NOTE: if no category is specified in experimentParams, it will use all categories. Remember to add category parameters
-    to the experimentParams dataclass inside dataclass_objects.py.
+    NOTE: if no category is specified in expConfigParams, it will use all categories. Remember to add category parameters
+    to the expConfigParams dataclass inside dataclass_objects.py.
     
     Category selection is a tuple containing category parameters, each of which stores the triple combination of 
     category name, the associated tester function over that category (not to be confused with test functions,
@@ -327,7 +326,7 @@ def complete_activation_test(exp_params : experimentParams, verbose : bool = Fal
         Each dataframe stores an agg-type test-type combination, e.g "('log_average', 'mean')" as a column name.
     """
     
-    category_params = {cat : categoryParams(cat) for cat in exp_params.categories}
+    category_params = {cat : category_registry[cat] for cat in exp_params.categories}
     
     n_features, n_classes = get_number_of_features_and_classes(exp_params.df_train, exp_params.labels)
 
@@ -367,7 +366,8 @@ def complete_activation_test(exp_params : experimentParams, verbose : bool = Fal
                 # r[eval_type] gets the right object from r ("train" vs "test"), then select the right data 
                 # from the experimentResult r
 
-                results_df = c.tester(data, over = measure_type, test_suite = exp_params.test_functions, 
+                activation_tester = c.get_tester()
+                results_df = activation_tester(data, over = measure_type, test_suite = exp_params.test_functions, 
                                       kfold_aggfuncs = aggfuncs, kfold_columns = aggfunc_names) 
                 results_df["activation"] = activation_name # So we can keep track
             
@@ -380,7 +380,7 @@ def complete_activation_test(exp_params : experimentParams, verbose : bool = Fal
     return total_activation_dfs
 
 
-def LS_alpha_sensitivity_test(exp_params : experimentParams, verbose : bool = True) -> dict[tuple[str, str, str], pd.DataFrame] :
+def LS_alpha_sensitivity_test(exp_params : expConfigParams, verbose : bool = True) -> dict[tuple[str, str, str], pd.DataFrame] :
     
     """
     Perform an alpha sensitivity test on an LS-converted activation function. Note that this implicitly assumes that
@@ -393,7 +393,7 @@ def LS_alpha_sensitivity_test(exp_params : experimentParams, verbose : bool = Tr
     exp_params tuple of activation functions; if there is more than one, takes the first only. 
 
     Params:
-        exp_params: the experimentParams dataclass; same useage as complete_activation_test.
+        exp_params: the expConfigParams dataclass; same useage as complete_activation_test.
         verbose: boolean detailing whether to provide details over current execution cycle.
         categories: tuple of strings containing which categories (e.g grad, testloss, testpreds) are desired to evaluate.
 

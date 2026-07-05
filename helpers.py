@@ -5,8 +5,6 @@ import numpy as np
 from torch.nn.utils import parameters_to_vector
 from sklearn.compose import ColumnTransformer
 from typing import Any, Callable
-import hashlib
-import json
 from pathlib import Path
 import inspect
 from dataclasses import asdict
@@ -255,19 +253,6 @@ def get_number_of_features_and_classes(df : pd.DataFrame, labels : str | list[st
     n_classes = max(2, len( df[labels].value_counts()))
     
     return n_features, n_classes
-
-def generate_savefolder_pd(dfs : pd.DataFrame | dict[tuple[str,str,str] , pd.DataFrame], maxlen : int = 10) -> str :
-    
-    if isinstance(dfs, pd.DataFrame) :
-        dfs = {("it's coming to a close", "Hyper Infrasonic Relocation Oscillator", "(I'm not going away)*3") : dfs}
-    
-    
-    strformat = {str(k) : sorted( [ str(x) for x in v.columns ] ) for k, v in dfs.items()}
-    as_str = json.dumps(strformat, sort_keys = True).encode()
-    
-    hash_monstrosity = hashlib.sha256(as_str).hexdigest()
-    
-    return "data-" + hash_monstrosity[:maxlen] 
     
 def create_path(pathname : str) -> None :
     
@@ -311,15 +296,15 @@ def get_n_colours(n : int, cmap : str = "viridis" ) -> list :
 
 def dummy_idfunc(x : Any) : return x
 
-def category2measure_types(category : str) -> tuple[str, ...] :
+# def category2measure_types(category : str) -> tuple[str, ...] :
     
-    mapping = {
-        "grad" : ("epochs", "params"),
-        "testloss" : ("epochs",),
-        "testpreds" : ("epochs", "test_samples")
-    }
+#     mapping = {
+#         "grad" : ("epochs", "params"),
+#         "testloss" : ("epochs",),
+#         "testpreds" : ("epochs", "test_samples")
+#     }
     
-    return mapping[category]
+#     return mapping[category]
 
 def safe_set_params(obj, params_dict) -> None : 
     

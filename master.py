@@ -1,11 +1,12 @@
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
-from activations import *
-from activation_testing import *
-from dataclass_objects import experimentParams
+from networks import ShortNetwork
+from dataclass_objects import expConfigParams
+from torch import nn
+
+# CUSTOM
 from visualisation import plot_activation_tests
 from helpers import df, df_train, df_test, config
-    
-##################### CODE #####################
+from activation_testing import complete_activation_test
 
 # Separate numeric columns for different preprocessing
 numeric_columns = df.select_dtypes(include = "number").columns.tolist()
@@ -15,7 +16,7 @@ nonnumerics = [col for col in df.columns if col not in set(numeric_columns)]
 feature_transforms = ( (numeric_columns, StandardScaler()), )
 label_transforms = ( (nonnumerics, OrdinalEncoder(handle_unknown = "use_encoded_value", unknown_value = -1)), )
 
-experiment_params = experimentParams(
+experiment_params = expConfigParams(
                         df_train, df_test, 
                         config["labels"], 
                         ShortNetwork, 

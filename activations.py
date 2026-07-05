@@ -1,7 +1,9 @@
 import torch
 from torch import nn
-from helpers import get_name, config, update_config
 from torch.nn import ReLU, Tanh
+
+# CUSTOM
+from helpers import get_name, config, update_config
 
 
 class IPLo(nn.Module):

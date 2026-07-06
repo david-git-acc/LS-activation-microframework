@@ -20,18 +20,21 @@ def experiment(xpi : expInputParams) -> experimentResult :
     """
     Main experiment code for the project. Takes in tensors, model, loss, and metadata and returns result as a
     simple experimentResult dataclass for ease of use. Ideal for passing in expConfigParams dataclass as input.
-    Main driver function for multiple experiment classes; never remove functionality from this, only add.
+    
+    This is the main driver function for multiple experiment classes; please be careful when 
+    modifying or removing functionality.
     
     Params:
+        xpi: the main input params class for this function, containing all of the attributes below.
         X_train_tensor : n x d training feature matrix.
         X_test_tensor : n_test x d testing feature matrix.
         Y_train_tensor : 1 x n or n x 1 training label matrix.
         Y_test_tensor : 1 x n_test or n_test x 1 testing label matrix.
-        my_model : the model to perform the experiment with.
+        anet_model : the model to perform the experiment with.
         my_loss : the loss function to evaluate the model.
         epochs : number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
         lr : constant learning rate value. In theory, you could pass in a variable learning rate here (not recommended).
-        batch_size : number of training examples to use per gradient descent step. Defaults to -1 (all training examples per step)
+        batch_size : number of training examples to use per gradient descent step. Defaults to -1 (all examples per step).
         max_samples : maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all). 
         
     Returns:
@@ -39,30 +42,28 @@ def experiment(xpi : expInputParams) -> experimentResult :
     """
     
     xpi.save_state()
-    optim = torch.optim.Adam(xpi.my_model.parameters(), lr = xpi.lr)
-    nabla = torch.zeros_like(params2grad_vector(xpi.my_model.parameters()))
-    
-    n = min(xpi.max_samples, xpi.epochs)
-    record_epochs = set(sampling_indices(xpi.epochs, n))
+    optim = torch.optim.Adam(xpi.anet_model.parameters(), lr = xpi.lr)
+    record_epochs = set(sampling_indices(xpi.epochs, xpi.n_captures))
     
     # Used for data recording
     logger = categoryExperimentLogger(xpi, categories = "all")
     
     record_index = 0
     for epoch in range(xpi.epochs) :
-        xpi.my_model.train()
-                
+        
+        xpi.anet_model.train()
         for X_train_batch, Y_train_batch in xpi.training_dataloader :
             optim.zero_grad()
-            predictions = xpi.my_model(X_train_batch)
+            predictions = xpi.anet_model(X_train_batch)
             loss : torch.Tensor = xpi.my_loss(predictions, Y_train_batch)
             loss.backward()
             optim.step()
+        
+        # Only capture the data at specified record times
+        if epoch not in record_epochs : continue
             
-        xpi.my_model.eval()
+        xpi.anet_model.eval()
         with torch.no_grad() :
-            if epoch not in record_epochs : continue
-            
             logger.record(record_index)
             record_index += 1 
             
@@ -154,21 +155,20 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
     """
     
     skf = StratifiedKFold(n_splits = kfold_k, random_state = config["seed"], shuffle = True)
-    n = min(epochs, max_samples) if max_samples > 0 else epochs
 
     exp_results = []
     X_train = df.drop(columns = labels)
     Y_train = df[labels] 
     
-    for fold_i, (train_index, test_index) in enumerate( skf.split(X_train, Y_train) ) :
+    for train_index, test_index in skf.split(X_train, Y_train) :
         
-        r = experiment_from_df(df.iloc[train_index], df.iloc[test_index], model, labels, 
+        fold_result = experiment_from_df(df.iloc[train_index], df.iloc[test_index], model, labels, 
                                feature_transforms = feature_transforms, 
                                label_transforms = label_transforms, 
                                dtypes = dtypes, epochs = epochs, 
                                batch_size = batch_size, max_samples = max_samples, loss = loss) 
         
-        exp_results.append(r)
+        exp_results.append(fold_result)
 
     # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
     return experimentResult(exp_results)
@@ -268,7 +268,6 @@ def post_experiment_test_testpreds(tps : torch.Tensor, over : str = "test_sample
         
     return post_experiment_test_grad(tps, over, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
 
- 
 
 def complete_activation_test(exp_params : expConfigParams, verbose : bool = False) -> dict[tuple[str,str,str], pd.DataFrame] :
     

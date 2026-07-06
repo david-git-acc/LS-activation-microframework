@@ -58,7 +58,6 @@ def plot_activation(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> Non
         plot_params: information about the plot for drawing it, e.g legends, colours, linestyles.
     
     """
-    
     # Switch-case offers only marginal speedup gains over branching, but more readable + extensible
     match plot_params["plot_type"] :
         case "curve" :
@@ -146,11 +145,13 @@ def plot_actexp_figure_data(xvp : expVisualParams, results_df : pd.DataFrame,
         
     for test_type in test_types : 
         post_plotting_axes_ops(test2ax[test_type])
+        
+    savename = f"{xvp.save_folder}/figures/{figure_data['savename']}.pdf"
     
-    plt.suptitle(figure_data["title"], fontsize = "xx-large")
-    plt.tight_layout()
-    plt.savefig(f"{xvp.save_folder}/figures/{figure_data['savename']}.png")
-    plt.close("all")
+    fig.suptitle(figure_data["title"], fontsize = "xx-large")
+    fig.tight_layout()
+    fig.savefig(savename)
+    plt.close(fig)
     
     
 def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp : expConfigParams,

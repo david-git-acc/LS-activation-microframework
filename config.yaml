@@ -2,7 +2,7 @@ epochs: 500
 test_size: 0.2
 seed: 42
 lr: 0.005
-max_samples: 50
+max_samples: 51
 kfold_k: 10
 features: [bill_length_mm, bill_depth_mm, flipper_length_mm, body_mass_g]
 labels: [sex]

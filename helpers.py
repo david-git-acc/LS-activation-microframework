@@ -91,7 +91,7 @@ def params2grad_vector(params) -> torch.Tensor :
     # Params must be iterable - a list or iterator
 
     grad_vector = parameters_to_vector([p.grad if p.grad is not None 
-                                        else torch.zeros_like(p) for p in params])
+                                        else torch.zeros_like(p) for p in params]).detach().cpu()
     
     return grad_vector
 

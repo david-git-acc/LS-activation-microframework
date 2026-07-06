@@ -9,13 +9,12 @@ import json
 import hashlib
 from math import ceil
 from torch.utils.data import TensorDataset, DataLoader
-import copy
 
 # CUSTOM
 from networks import ActivationNetwork
 from helpers import (validate_activation_df_column_names, sampling_indices, get_n_colours, dummy_idfunc, 
                       determine_plot_type, generate_plot_title, arithmetic_mean, is_hashable, smart_str, safe_asdict,
-                      params2grad_vector, pad_torch_stack, get_name)
+                      params2grad_vector, pad_torch_stack, get_name, testloss_dummy)
 
 ################################# REST ########################################################
 
@@ -175,7 +174,7 @@ class expConfigParams() :
         return expVisualParams(**main_params)
     
     def exp_inp_params(self) :
-        return expVisualParams(**safe_asdict(self.__dict__, expVisualParams))
+        return expInputParams(**safe_asdict(self.__dict__, expInputParams))
     
 @dataclass
 class expVisualParams() :
@@ -312,7 +311,7 @@ class expInputParams() :
     X_test_tensor : torch.Tensor
     Y_train_tensor : torch.Tensor
     Y_test_tensor : torch.Tensor 
-    my_model : ActivationNetwork
+    anet_model : ActivationNetwork
     my_loss : nn.Module = nn.CrossEntropyLoss()
     epochs : int = 500 
     lr : float = 0.001
@@ -327,18 +326,19 @@ class expInputParams() :
         self.training_dataset = TensorDataset(self.X_train_tensor, self.Y_train_tensor)
         self.training_dataloader = DataLoader(self.training_dataset, self.batch_size, shuffle = True )
         
-        self.nabla_shape = params2grad_vector(self.my_model.parameters()).size()
+        self.nabla_shape = params2grad_vector(self.anet_model.parameters()).size()
         self.saved_params : dict[str, Any] = {}
         
     
     def save_state(self) -> None :
-        self.saved_params["my_model"] = copy.deepcopy(self.my_model.state_dict())
+        self.saved_params["anet_model"] = { param : value.clone() 
+                                           for param, value in self.anet_model.state_dict().items() }
     
     def reload_state(self) -> None :
-        self.my_model.load_state_dict(self.saved_params["my_model"])
+        self.anet_model.load_state_dict(self.saved_params["anet_model"])
     
     @property
-    def n(self) -> int :
+    def n_captures(self) -> int :
         return min(self.epochs, self.max_samples)
     
     
@@ -360,7 +360,7 @@ class monitorParams() :
         
         # If it's test data then there are no folds, so to avoid having to duplicate this function we add a dummy one
         if is_test_data : self.X = self.X[..., None]
-
+        
         self.test_function_names = validate_activation_df_column_names(self.test_functions, self.test_function_names)
         self.kfold_columns = validate_activation_df_column_names(self.kfold_aggfuncs, self.kfold_columns)
 
@@ -378,6 +378,7 @@ class experimentResult() :
     """
     _results : dict[str, torch.Tensor] | list[experimentResult] = field(default_factory = dict)
     results : dict[str, torch.Tensor] = field(default_factory = dict, init = False) # Should NOT be writeable to
+    is_aggregated : bool = False
     
     def __post_init__(self) :
         self.validate()
@@ -399,11 +400,14 @@ class experimentResult() :
                     else :
                         dict_results[category] = [result]
             
-            # Creates the K-fold architecture for the results. Setting dim = -1 sets kfold dim as last one (required)         
+            # Creates the K-fold architecture for the results. Setting dim = -1 sets kfold dim as last one (required)  
+            # pad_torch_stack had to be specifically developed for SKF not having equal fold sizes, rest shouldn't need it       
             dict_results = {category : torch.stack(pad_torch_stack(data), dim = -1) 
                             for category, data in dict_results.items()}
             self.results = dict_results
-        
+            
+            # Flag to check if it's kfold or not, for further debugging / logging
+            self.is_aggregated = True
         else :
             self.results = self._results
 

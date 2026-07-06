@@ -188,6 +188,8 @@ def log_average(X : torch.Tensor, dim : int = 0,) -> torch.Tensor :
     return torch.nanmean(logged, dim = dim)
 
 
+
+
 def validate_activation_df_column_names(test_suite : list[Callable] | tuple[Callable, ...], 
                                         test_columns : list[str]) -> list[str] :
     
@@ -355,8 +357,6 @@ def update_config(registed_params : dict[str, Callable], config : dict[str, Any]
     config[namestring] = [registed_params[name.lower()] 
                          for name in config[namestring_names]]
     
-
-
 # Necessary
 update_config({ 
     "mean" : arithmetic_mean,

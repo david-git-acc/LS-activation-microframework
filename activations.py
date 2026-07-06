@@ -62,7 +62,6 @@ class LS(nn.Module) :
     def forward(self, X : torch.Tensor) -> torch.Tensor :
         
         a = torch.clip(self.alpha, min = 1e-10, max = 1 - 1e-10)
-        
         out = a * X + (1-a) * ( self.base_activation(X) / self.f_prime_0 )
         
         return out

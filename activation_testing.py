@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import TensorDataset, DataLoader
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold
 from typing import Any, Callable
@@ -11,15 +10,12 @@ from rich.progress import Progress
 
 # CUSTOM
 from helpers import *
-from dataclass_objects import experimentResult, expConfigParams, monitorParams, category_registry
+from dataclass_objects import expConfigParams, monitorParams, expInputParams, experimentResult
+from category_functions import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
 from activations import LS
 
-def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor, 
-               Y_train_tensor : torch.Tensor, Y_test_tensor : torch.Tensor, 
-               my_model : ActivationNetwork, my_loss : nn.Module = nn.CrossEntropyLoss(),
-               epochs : int = 500, lr : float = 0.001, 
-               batch_size : int = -1, max_samples : int = -1) -> experimentResult : 
+def experiment(xpi : expInputParams) -> experimentResult : 
     
     """
     Main experiment code for the project. Takes in tensors, model, loss, and metadata and returns result as a
@@ -42,60 +38,46 @@ def experiment(X_train_tensor : torch.Tensor, X_test_tensor : torch.Tensor,
         experimentResult : stores all the captured data for future use.
     """
     
-    # Use full-batch GD if no batch size given
-    batch_size = len(X_train_tensor) if batch_size == -1 else batch_size
-    max_samples = epochs if max_samples == -1 else max_samples
+    xpi.save_state()
+    optim = torch.optim.Adam(xpi.my_model.parameters(), lr = xpi.lr)
+    nabla = torch.zeros_like(params2grad_vector(xpi.my_model.parameters()))
     
-    training_dataset = TensorDataset(X_train_tensor, Y_train_tensor)
-    training_dataloader = DataLoader(training_dataset, batch_size, shuffle = True )
+    n = min(xpi.max_samples, xpi.epochs)
+    record_epochs = set(sampling_indices(xpi.epochs, n))
     
-    optim = torch.optim.Adam(my_model.parameters(), lr = lr)
-    nabla = torch.zeros_like(params2grad_vector(my_model.parameters()))
-    
-    n = min(max_samples, epochs) if max_samples > 0 else epochs
-    record_epochs = set(sampling_indices(epochs, n))
-    
-    # Initialise as nan for debugging; can see where was not populated
-    gradient_matrix = torch.full(size = (n, len(nabla)), fill_value = torch.nan)
-    test_loss = torch.full(size = (n,), fill_value = torch.nan)
-    test_predictions = torch.full(size = (n, len(Y_test_tensor)), fill_value = torch.nan) 
+    # Used for data recording
+    logger = categoryExperimentLogger(xpi, categories = "all")
     
     record_index = 0
-    for epoch in range(epochs) :
-        my_model.train()
+    for epoch in range(xpi.epochs) :
+        xpi.my_model.train()
                 
-        for X_train_batch, Y_train_batch in training_dataloader :
+        for X_train_batch, Y_train_batch in xpi.training_dataloader :
             optim.zero_grad()
-            predictions = my_model(X_train_batch)
-            loss : torch.Tensor = my_loss(predictions, Y_train_batch)
+            predictions = xpi.my_model(X_train_batch)
+            loss : torch.Tensor = xpi.my_loss(predictions, Y_train_batch)
             loss.backward()
             optim.step()
             
-        my_model.eval()
+        xpi.my_model.eval()
         with torch.no_grad() :
             if epoch not in record_epochs : continue
-              
-            # Recompute nabla after optimisation
-            nabla = params2grad_vector(my_model.parameters()).detach().cpu()
-            test_predictions_torch = my_model(X_test_tensor)
-            outs = torch.argmax(test_predictions_torch, dim = 1) # maximum over columns, so we get a 1D vector of predictions
-
-            gradient_matrix[record_index, :] = nabla
-            test_loss[record_index] = my_loss(test_predictions_torch, Y_test_tensor).item()
-            test_predictions[record_index, :] = outs.view(-1)  
             
+            logger.record(record_index)
             record_index += 1 
             
+    xpi.reload_state()        
+    
     # gm = 2D (epochs, parameters), AL = 3D (epochs, layers, neurons), TL = 1D (epochs), TP = 2D (epochs, n_test)
-    return experimentResult(gradient_matrix, test_loss, test_predictions)
+    return logger.result
 
 
 def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : ActivationNetwork,
                        labels : str | list[str], loss : nn.Module = nn.CrossEntropyLoss(),
                        feature_transforms : tuple[tuple[list[str], Any], ...] = (),
                        label_transforms : tuple[tuple[list[str], Any], ...] = (),
-    dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long), 
-    epochs : int = 500, batch_size : int = -1, max_samples : int = -1 ) -> experimentResult :
+                       dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long), 
+                       epochs : int = 500, batch_size : int = -1, max_samples : int = -1 ) -> experimentResult :
     
     """
     Same as experiment() but taken directly from the dataframe to minimise boilerplate code. Also excellent for 
@@ -134,18 +116,18 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
     X_train, X_test = dfs2train_test(df_train_X, df_test_X, X_transformer, dtype = X_type)
     Y_train, Y_test = dfs2train_test(df_train_Y, df_test_Y, Y_transformer, dtype = Y_type)
     
-    return experiment(X_train, X_test, Y_train, Y_test, model, my_loss = loss, 
-                      epochs = epochs, batch_size = batch_size, max_samples = max_samples)
+    return experiment(expInputParams(X_train, X_test, Y_train, Y_test, model, my_loss = loss, 
+                      epochs = epochs, batch_size = batch_size, max_samples = max_samples))
 
         
         
 def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | list[str], 
-                            loss : nn.Module,
-                            feature_transforms : tuple[tuple[list[str], Any], ...] = (), 
-                            label_transforms : tuple[tuple[list[str], Any], ...] = (),
-                            dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long),
-                            kfold_k : int = 10, epochs : int = 500, 
-                            batch_size : int = -1, max_samples : int = -1) -> experimentResult :
+                loss : nn.Module,
+                feature_transforms : tuple[tuple[list[str], Any], ...] = (), 
+                label_transforms : tuple[tuple[list[str], Any], ...] = (),
+                dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long),
+                kfold_k : int = 10, epochs : int = 500, 
+                batch_size : int = -1, max_samples : int = -1) -> experimentResult :
     
     """
     Perform Stratified K-Fold (SKF) cross-validation on a dataframe. Highly compatible with 
@@ -172,15 +154,12 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
     """
     
     skf = StratifiedKFold(n_splits = kfold_k, random_state = config["seed"], shuffle = True)
-    
-    # If we don't reload then it becomes useless
-    original_network_state = copy.deepcopy(model.state_dict())
-    
     n = min(epochs, max_samples) if max_samples > 0 else epochs
+    
     gradient_matrices = [] # Store as list because we don't know parameters size yet
     kfold_loss = torch.full(size = (n, kfold_k), fill_value = torch.nan)
     kfold_tps = torch.full(size = (n, len(df), kfold_k), fill_value = torch.nan) 
-    # Kfolds have slightly different sizes - standardise to same n_samples size, then 
+    # Kfolds have slightly different sizes - standardise to same len(df) size, then 
     # initialise all as NaN so we can filter them out later in metric calculation
 
     X_train = df.drop(columns = labels)
@@ -194,17 +173,14 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
                                dtypes = dtypes, epochs = epochs, 
                                batch_size = batch_size, max_samples = max_samples, loss = loss) 
         
-        # Reset model state to prevent accumulation
-        model.load_state_dict(original_network_state)
-        
-        gradient_matrices.append(r.grad)
-        kfold_loss[:, fold_i] = r.testloss
-        kfold_tps[:, test_index, fold_i] = r.testpreds
+        gradient_matrices.append(r.results["grad"])
+        kfold_loss[:, fold_i] = r.results["testloss"]
+        kfold_tps[:, test_index, fold_i] = r.results["testpreds"]
     
     gradient_matrices = torch.stack(gradient_matrices, dim = 2) # Moves k to the end
     
     # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
-    return experimentResult(gradient_matrices, kfold_loss, kfold_tps)
+    return experimentResult(results = {"grad" : gradient_matrices, "testloss" : kfold_loss, "testpreds" : kfold_tps})
 
   
   
@@ -362,12 +338,11 @@ def complete_activation_test(exp_params : expConfigParams, verbose : bool = Fals
                   
                 # Get the correct category params dataclass object, then get the data to evaluate - either train or test
                 c = category_params[category]
-                data = getattr(r[eval_type], category) 
+                data = r[eval_type].results[category]
                 # r[eval_type] gets the right object from r ("train" vs "test"), then select the right data 
-                # from the experimentResult r
+                # from the experimentResult r.results, which is a dictionary of categories to data tensors
 
-                activation_tester = c.get_tester()
-                results_df = activation_tester(data, over = measure_type, test_suite = exp_params.test_functions, 
+                results_df = c.tester(data, over = measure_type, test_suite = exp_params.test_functions, 
                                       kfold_aggfuncs = aggfuncs, kfold_columns = aggfunc_names) 
                 results_df["activation"] = activation_name # So we can keep track
             

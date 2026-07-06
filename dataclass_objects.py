@@ -7,13 +7,15 @@ import matplotlib.lines as mlines
 import json
 import hashlib
 from math import ceil
+from torch.utils.data import TensorDataset, DataLoader
 
 # CUSTOM
 from networks import ActivationNetwork
 from helpers import (validate_activation_df_column_names, sampling_indices, get_n_colours, dummy_idfunc, 
-                      determine_plot_type, generate_plot_title, safe_set_params, arithmetic_mean,
-                     is_hashable, smart_str)
+                      determine_plot_type, generate_plot_title, arithmetic_mean, is_hashable, smart_str, safe_asdict,
+                      params2grad_vector)
 
+################################# REST ########################################################
 
 @dataclass
 class expConfigParams() :
@@ -167,10 +169,13 @@ class expConfigParams() :
             "experiment" : self,
         }
         
-        return expVisParams(**main_params)
+        return expVisualParams(**main_params)
+    
+    def exp_inp_params(self) :
+        return expVisualParams(**safe_asdict(self.__dict__, expVisualParams))
     
 @dataclass
-class expVisParams() :
+class expVisualParams() :
     
     """
     This is the visual parameters dataclass for a given experiment. 
@@ -187,26 +192,6 @@ class expVisParams() :
     activation_colours : dict[str, Any]
     kf_aggfunc_linestyles : dict[str, str]
     experiment : expConfigParams
-    
-    def initialise_figure_params(self) -> dict[tuple[str, str, str], Any] :
-        
-        """Creates default parameters dictionary for all valid figures.
-
-        Returns:
-            A dictionary of triples, where each triple corresponds to an
-            (eval_type (train/test), category, measure_type) combination.
-            Each associated value is itself the dictionary of figure parameters for that combination.
-        """
-        
-        figures_dict = {}
-        
-        for eval_type in ("train", "test") : 
-            for category in self.experiment.categories :
-                for measure_type in category2measure_types(category) :
-                    combination = (eval_type, category, measure_type)
-                    figures_dict[combination] = self.generate_figure_params(*combination)
-    
-        return figures_dict
     
     def generate_figure_params(self, eval_type : str, category : str, measure_type : str,
                                plots_per_row : int = 3) -> dict[str, Any] :
@@ -260,7 +245,7 @@ class expVisParams() :
             test_type: what test function the axes is for. Every axes object is for a specific test function.
             
             fig_params: the associated dictionary of parameters for the parent figure object. Use generate_figure_params()
-            if this is not available from the same dataclass object expVisParams.
+            if this is not available from the same dataclass object expVisualParams.
             
             nskip: Number of initial epochs to skip. Only valid for epochs or ordered x-axes. 
 
@@ -319,6 +304,42 @@ class expVisParams() :
         return plot_params
     
 @dataclass
+class expInputParams() :
+    X_train_tensor : torch.Tensor
+    X_test_tensor : torch.Tensor
+    Y_train_tensor : torch.Tensor
+    Y_test_tensor : torch.Tensor 
+    my_model : ActivationNetwork
+    my_loss : nn.Module = nn.CrossEntropyLoss()
+    epochs : int = 500 
+    lr : float = 0.001
+    batch_size : int = -1
+    max_samples : int = -1
+    
+    def __post_init__(self) : 
+        # Use full-batch GD if no batch size given
+        self.batch_size = len(self.X_train_tensor) if self.batch_size == -1 else self.batch_size
+        self.max_samples = self.epochs if self.max_samples == -1 else self.max_samples
+        
+        self.training_dataset = TensorDataset(self.X_train_tensor, self.Y_train_tensor)
+        self.training_dataloader = DataLoader(self.training_dataset, self.batch_size, shuffle = True )
+        
+        self.nabla_shape = params2grad_vector(self.my_model.parameters()).size()
+        self.saved_params : dict[str, Any] = {}
+        
+    
+    def save_state(self) -> None :
+        self.saved_params["my_model"] = self.my_model.state_dict()
+    
+    def reload_state(self) -> None :
+        self.my_model.load_state_dict(self.saved_params["my_model"])
+    
+    @property
+    def n(self) -> int :
+        return min(self.epochs, self.max_samples)
+    
+    
+@dataclass
 class monitorParams() :
     X : torch.Tensor
     test_functions : tuple[Callable, ...]
@@ -344,66 +365,36 @@ class monitorParams() :
 class experimentResult() :
     
     """Simple container class for efficiently representing all categories of result from an experiment. 
-        Not intended for any complex calculations, unlike expConfigParams or expVisParams.
+        Not intended for any complex calculations, unlike expConfigParams or expVisualParams.
     """
+    results : dict[str, torch.Tensor] = field(default_factory = dict)
     
-    grad : torch.Tensor
-    testloss : torch.Tensor
-    testpreds : torch.Tensor
+    def __post_init__(self) :
+        
+        # Only stores tensors
+        for attr in self.results :
+            if not isinstance(self.results[attr], torch.Tensor) :
+                print("error: of type, " , attr, type(self.results[attr]))
+                assert 0
+    
 
     def get_ndims(self) -> dict[str, int] :
         
-        ndims = { name : len(x.size()) for name, x in self.__dict__.items() if isinstance(x, torch.Tensor)}
+        ndims = { name : len(x.size()) for name, x in self.results.items() if isinstance(x, torch.Tensor)}
         
         return ndims
     
     def get_ndims_tuple(self) -> tuple :
         
-        ndims = tuple( ( name , len(x.size()) ) for name, x in self.__dict__.items() if isinstance(x, torch.Tensor) )
+        ndims = tuple( ( name , len(x.size()) ) for name, x in self.results.items() if isinstance(x, torch.Tensor) )
         
         return ndims
     
     def get_max_dim(self) -> int :
         
-        return max(self.get_ndims_tuple())
+        return max(self.get_ndims_tuple(), key = lambda x : x[1])
 
 
 
 
 
-
-
-@dataclass
-class categoryParams() :
-    name : str
-    tester : Callable = dummy_idfunc
-    measure_types : tuple[str, ...] = ()
-           
-    def get_tester(self) :
-        
-        # I hate that this is necessary, but there is no other way to get this to work without fusing .py files
-        if self.tester.__name__ == "dummy_idfunc":
-            import activation_testing
-            self.tester = getattr(activation_testing, "post_experiment_test_" + self.name)
-        
-        return self.tester
-        
-
-
-# When adding any new category, please instantiate and specify all parameters here to avoid data redundancy
-# Also, keep it in keyword argument format even if not necessary, for clarity
-category_registry : dict[str, categoryParams] = {
-    "grad" : categoryParams(name = "grad", 
-                            measure_types = ("epochs", "params"),
-                            ),
-    "testloss" : categoryParams(name = "testloss", 
-                                measure_types = ("epochs",),
-                                ),
-    "testpreds" : categoryParams(name = "testpreds", 
-                                 measure_types = ("epochs", "test_samples"),
-                                 )
-}
-
-def category2measure_types(category : str) -> tuple[str, ...] :
-    
-    return category_registry[category].measure_types

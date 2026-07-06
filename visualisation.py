@@ -72,7 +72,7 @@ def plot_activation(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> Non
         case _ :
             raise ValueError(f"Invalid plot type for visualisation {plot_params['plot_type']}")
 
-def plot_actexp_figure_data(xvp : expVisParams, results_df : pd.DataFrame,
+def plot_actexp_figure_data(xvp : expVisualParams, results_df : pd.DataFrame,
                             xvp_triple : tuple[str, str, str], save2csv : bool = True,
                             nskip : int = 1, verbose : bool = True) -> None :
     

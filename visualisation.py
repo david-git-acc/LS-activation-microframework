@@ -6,6 +6,7 @@ import matplotlib
 from rich.progress import Progress
 
 # CUSTOM
+from category_functions import is_ordinal
 from dataclass_objects import *
 from helpers import *
 
@@ -26,6 +27,10 @@ def post_plotting_axes_ops(ax) -> None :
     """
     Represents work to be done after all axes plots/curves have been drawn.
     """
+    
+    if is_empty_axis(ax) :
+        ax.axis("off")
+        return
     
     ax.legend(loc = "upper left", fontsize = 9)   
      
@@ -109,10 +114,11 @@ def plot_actexp_figure_data(xvp : expVisualParams, results_df : pd.DataFrame,
     
     # Every test will be of the form (test_type, agg_type) - anything else e.g index is invalid
     all_tests = [col for col in results_df.columns.tolist() if isinstance(col, tuple)]
+    test_types = {test_type for test_type, agg_type in sorted(all_tests)}
     
     # Each test type gets its own axes object. Had to use set to avoid duplicates,
     # since each test appears len(agg_types) times over all the columns
-    test2ax = dict(zip({test_type for test_type, agg_type in all_tests}, axes))
+    test2ax = dict(zip(test_types, axes))
     activation_groups = results_df.groupby("activation")
     
     for test_type, agg_type in all_tests :
@@ -128,13 +134,18 @@ def plot_actexp_figure_data(xvp : expVisualParams, results_df : pd.DataFrame,
             if verbose : print(f"{test_agg_str} Plotting activation {activation_name}")
             activation_data = activation_groups.get_group(activation_name)
 
-            x = ax_params["xticklabels"][ax_params["nskip"]: ]
-            y = activation_data[(test_type, agg_type)][ax_params["nskip"]: ]
+            x = ax_params["xticklabels"]
+            y = activation_data[(test_type, agg_type)]
             
+            if is_ordinal(xvp_triple[1]) :
+                x = x[ax_params["nskip"]: ]
+                y = y[ax_params["nskip"]: ]
+                
             plot_params = xvp.generate_plot_params(activation_name, agg_type, plot_type)
             plot_activation(x, y, ax, plot_params)
         
-        post_plotting_axes_ops(ax)
+    for test_type in test_types : 
+        post_plotting_axes_ops(test2ax[test_type])
     
     plt.suptitle(figure_data["title"], fontsize = "xx-large")
     plt.tight_layout()

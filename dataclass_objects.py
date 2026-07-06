@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 import pandas as pd
 from typing import Any, Callable
@@ -8,12 +9,13 @@ import json
 import hashlib
 from math import ceil
 from torch.utils.data import TensorDataset, DataLoader
+import copy
 
 # CUSTOM
 from networks import ActivationNetwork
 from helpers import (validate_activation_df_column_names, sampling_indices, get_n_colours, dummy_idfunc, 
                       determine_plot_type, generate_plot_title, arithmetic_mean, is_hashable, smart_str, safe_asdict,
-                      params2grad_vector)
+                      params2grad_vector, pad_torch_stack, get_name)
 
 ################################# REST ########################################################
 
@@ -137,7 +139,8 @@ class expConfigParams() :
         """
         
         # Salt added on end
-        strformat = str([ smart_str(v) for v in self.__dict__.values() if is_hashable(v)])
+        strformat = str([ smart_str(v) if is_hashable(v) else smart_str(get_name(v))
+                         for v in self.__dict__.values() ])
         as_str = json.dumps(strformat + "you and I, (nothing comes easy) * 2", sort_keys = True).encode() 
         
         hash_monstrosity = hashlib.sha256(as_str).hexdigest()
@@ -329,7 +332,7 @@ class expInputParams() :
         
     
     def save_state(self) -> None :
-        self.saved_params["my_model"] = self.my_model.state_dict()
+        self.saved_params["my_model"] = copy.deepcopy(self.my_model.state_dict())
     
     def reload_state(self) -> None :
         self.my_model.load_state_dict(self.saved_params["my_model"])
@@ -364,27 +367,53 @@ class monitorParams() :
 @dataclass
 class experimentResult() :
     
-    """Simple container class for efficiently representing all categories of result from an experiment. 
-        Not intended for any complex calculations, unlike expConfigParams or expVisualParams.
     """
-    results : dict[str, torch.Tensor] = field(default_factory = dict)
+    Simple container class for efficiently representing all categories of result from an experiment. 
+        Not intended for any complex calculations, unlike expConfigParams or expVisualParams.
+    
+    Params:
+        _results: the dictionary of results, where each key is a category and the value is the tensor of results.
+        
+        results: same as _results, stored for type checking and mypy purposes. No need to pass in any value here.
+    """
+    _results : dict[str, torch.Tensor] | list[experimentResult] = field(default_factory = dict)
+    results : dict[str, torch.Tensor] = field(default_factory = dict, init = False) # Should NOT be writeable to
     
     def __post_init__(self) :
+        self.validate()
+                    
+    def validate(self) :
         
-        # Only stores tensors
-        for attr in self.results :
-            if not isinstance(self.results[attr], torch.Tensor) :
-                print("error: of type, " , attr, type(self.results[attr]))
-                assert 0
-    
+        # Handle k-fold assumption
+        if isinstance(self._results, list) :
+            
+            # Construct new dictionary to store each one
+            dict_results = {}
+            
+            for exp_result in self._results : 
+                exp_result.validate() # Just in case any children also have list elements
+                
+                for category, result in list(exp_result.results.items()) :              
+                    if category in dict_results :
+                        dict_results[category].append(result)
+                    else :
+                        dict_results[category] = [result]
+            
+            # Creates the K-fold architecture for the results. Setting dim = -1 sets kfold dim as last one (required)         
+            dict_results = {category : torch.stack(pad_torch_stack(data), dim = -1) 
+                            for category, data in dict_results.items()}
+            self.results = dict_results
+        
+        else :
+            self.results = self._results
 
     def get_ndims(self) -> dict[str, int] :
-        
+
         ndims = { name : len(x.size()) for name, x in self.results.items() if isinstance(x, torch.Tensor)}
         
         return ndims
     
-    def get_ndims_tuple(self) -> tuple :
+    def get_ndims_tuple(self) -> tuple[tuple[str, int], ...] :
         
         ndims = tuple( ( name , len(x.size()) ) for name, x in self.results.items() if isinstance(x, torch.Tensor) )
         
@@ -392,7 +421,7 @@ class experimentResult() :
     
     def get_max_dim(self) -> int :
         
-        return max(self.get_ndims_tuple(), key = lambda x : x[1])
+        return max(self.get_ndims_tuple(), key = lambda x : x[1])[1]
 
 
 

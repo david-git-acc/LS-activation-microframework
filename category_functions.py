@@ -56,8 +56,6 @@ class categoryExperimentTracker(ABC) :
         self.xpi = xpi
         self._category = "placeholder"
         self._data = torch.Tensor([])
-        self.uses_kfold = False
-        
 
     @property
     def category(self) -> str :
@@ -124,7 +122,6 @@ class testpredsExperimentTracker(categoryExperimentTracker) :
 class categoryExperimentLogger() :
     xpi : expInputParams
     categories : tuple[str, ...] | str = "all"
-    uses_kfold : bool = False
     
     def __post_init__(self) :
         
@@ -183,3 +180,8 @@ category_registry : dict[str, categoryParams] = {
                                  tracker = testpredsExperimentTracker
                                  )
 }
+
+ordinal_measure_types : set[str] = {"epochs", "layers"}
+
+def is_ordinal(measure_type : str) -> bool :
+    return measure_type in ordinal_measure_types

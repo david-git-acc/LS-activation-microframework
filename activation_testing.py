@@ -155,13 +155,8 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
     
     skf = StratifiedKFold(n_splits = kfold_k, random_state = config["seed"], shuffle = True)
     n = min(epochs, max_samples) if max_samples > 0 else epochs
-    
-    gradient_matrices = [] # Store as list because we don't know parameters size yet
-    kfold_loss = torch.full(size = (n, kfold_k), fill_value = torch.nan)
-    kfold_tps = torch.full(size = (n, len(df), kfold_k), fill_value = torch.nan) 
-    # Kfolds have slightly different sizes - standardise to same len(df) size, then 
-    # initialise all as NaN so we can filter them out later in metric calculation
 
+    exp_results = []
     X_train = df.drop(columns = labels)
     Y_train = df[labels] 
     
@@ -173,14 +168,10 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
                                dtypes = dtypes, epochs = epochs, 
                                batch_size = batch_size, max_samples = max_samples, loss = loss) 
         
-        gradient_matrices.append(r.results["grad"])
-        kfold_loss[:, fold_i] = r.results["testloss"]
-        kfold_tps[:, test_index, fold_i] = r.results["testpreds"]
-    
-    gradient_matrices = torch.stack(gradient_matrices, dim = 2) # Moves k to the end
-    
+        exp_results.append(r)
+
     # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
-    return experimentResult(results = {"grad" : gradient_matrices, "testloss" : kfold_loss, "testpreds" : kfold_tps})
+    return experimentResult(exp_results)
 
   
   

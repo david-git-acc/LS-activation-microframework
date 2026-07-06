@@ -118,6 +118,43 @@ def activations2tensor_1d(activation_outs : list[torch.Tensor]) -> torch.Tensor 
     
     return torch.tensor(refined_activation_outs)
 
+def get_max_shape(tensors : list[torch.Tensor]) -> tuple :
+    
+    max_ndims = max(len(tensor.size()) for tensor in tensors)
+    max_shape = [-1 for _ in range(max_ndims)]
+    
+    for tensor in tensors :
+        shape = tensor.size()
+        for dim, n_elems in enumerate( shape ) :
+            max_shape[dim] = max(max_shape[dim], n_elems)
+    
+    return tuple(max_shape)
+    
+
+def pad_torch_stack(tensors : list[torch.Tensor], pad_with : float = torch.nan) -> list[torch.Tensor] :
+
+    new_tensors = []
+    max_shape = get_max_shape(tensors)
+    max_ndims = len(max_shape)
+    dtype = tensors[0].dtype # Assumes every tensor is the same datatype
+
+    for tensor in tensors :
+        assert tensor.dtype == dtype
+        
+        tensor_shape = tuple(tensor.size())
+        ndims = len(tensor.size())
+        dim_diff = max_ndims - ndims
+        new_shape = tensor_shape + (1,) * dim_diff
+        
+        intermediate_tensor = tensor.view(*new_shape)
+        
+        new_tensor = torch.full(max_shape, fill_value = pad_with, dtype = dtype)
+        tensor_slices = tuple(slice(0, n_elems) for n_elems in tensor_shape)
+        new_tensor[tensor_slices] = intermediate_tensor
+        new_tensors.append(new_tensor)
+    
+    return new_tensors
+
 
 def pd_data_transformer(transform_list : tuple[tuple[list[str], Any], ...]) -> ColumnTransformer :
 
@@ -178,7 +215,7 @@ def arithmetic_mean(X : torch.Tensor, dim : int = 0) -> torch.Tensor :
 
     return meaned    
 
-def log_average(X : torch.Tensor, dim : int = 0,) -> torch.Tensor :
+def log_average(X : torch.Tensor, dim : int = 0) -> torch.Tensor :
     
     # Avoid negative badness
     safe = torch.abs(X) + 1e-10
@@ -350,6 +387,11 @@ def smart_str(x : Any) -> str :
     
     if mapped is None : return x_name
     return mapped(x)
+
+
+def is_empty_axis(ax) -> bool :
+    
+    return not (ax.lines or ax.collections or ax.patches)
 
 def update_config(registed_params : dict[str, Callable], config : dict[str, Any], namestring = "activations") -> None :
     namestring_names = f"{namestring[:-1]}_names"

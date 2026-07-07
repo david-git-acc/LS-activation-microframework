@@ -5,11 +5,16 @@ import pandas as pd
 from sklearn.model_selection import StratifiedKFold
 from typing import Any, Callable
 from dataclasses import replace
-import copy
 from rich.progress import Progress
 
 # CUSTOM
-from helpers import *
+from support.processing_helpers import (sampling_indices, pd_data_transformer, dfs2train_test, 
+                                        get_number_of_features_and_classes)
+from support.config import config
+from support.torch_test_metrics import arithmetic_mean, testloss_dummy
+from support.parsing_helpers import name2index, safe_asdict
+
+
 from dataclass_objects import expConfig, monitorParams, expInput, experimentResult
 from category_functions import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
@@ -229,6 +234,7 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
             df_column_name = (mp.test_function_names[i], mp.kfold_columns[j])
             df_columns.append(df_column_name)
     
+    assert len(set(df_columns)) == len(df_columns), f"Duplicate df columns. Please check testfuncs and kfold_aggfuncs"
     test_results = np.asarray(test_results).T # Transpose to turn features into columns
     result_df = pd.DataFrame(test_results, columns = df_columns)
     
@@ -324,7 +330,7 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
                 else : # No point aggregating over a single fold if it's test data; 0 variance    
                     nameof_arithmetic_mean = exp_params.kfold_aggfunc_names[exp_params.kfold_aggfuncs.index(arithmetic_mean)]
                     aggfuncs, aggfunc_names = ((arithmetic_mean,), [nameof_arithmetic_mean])
-                  
+                        
                 # Get the correct category params dataclass object, then get the data to evaluate - either train or test
                 c = category_params[category]
                 data = r[eval_type].results[category]
@@ -339,7 +345,7 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
                 progress.advance(work, 1)
 
     # Only concat at the end for speed
-    total_activation_dfs = {df_type : pd.concat(df) for df_type, df in total_activation_dfs.items()}
+    total_activation_dfs = {df_type : pd.concat(df, axis = 0) for df_type, df in total_activation_dfs.items()}
     
     return total_activation_dfs
 

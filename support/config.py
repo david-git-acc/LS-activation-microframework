@@ -1,0 +1,56 @@
+import torch
+from torch.utils.data import Dataset
+import pandas as pd
+import numpy as np
+from torch.nn.utils import parameters_to_vector
+from sklearn.compose import ColumnTransformer
+from typing import Any, Callable
+from pathlib import Path
+import inspect
+from dataclasses import asdict
+from matplotlib import pyplot as plt
+import yaml
+import random
+from sklearn.model_selection import train_test_split
+
+from support.torch_test_metrics import arithmetic_mean, variance, log_average
+
+# INITIALISATION
+
+def import_config(config_saveloc : str = "config.yaml") -> dict[str, Any]:
+    
+    with open(config_saveloc, "r") as f :
+        config = yaml.safe_load(f)
+
+    return config
+
+config = import_config()
+
+df = pd.read_csv("datasets/penguins.csv", index_col = 0)
+df = df[config["features"] + config["labels"]].dropna(how = "any").reset_index(drop=True)
+df_train, df_test = train_test_split(df, test_size = config["test_size"])
+
+# Fix seeds for reproducibility
+torch.manual_seed(config["seed"])
+np.random.seed(config["seed"])
+random.seed(config["seed"])
+
+def update_config(registed_params : dict[str, Callable], config : dict[str, Any], namestring = "activations") -> None :
+    namestring_names = f"{namestring[:-1]}_names"
+    config[namestring_names] = config.get(namestring, []) # Get rid of the "s"
+    config[namestring] = [registed_params[name.lower()] 
+                         for name in config[namestring_names]]
+    
+# Necessary
+update_config({ 
+    "mean" : arithmetic_mean,
+    "log_average" : log_average,
+    "variance" : variance
+}, 
+config, "test_functions")
+
+update_config({ 
+    "mean" : arithmetic_mean,
+    "variance" : variance
+}, 
+config, "kfold_aggfuncs")

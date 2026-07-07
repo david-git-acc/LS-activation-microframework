@@ -4,11 +4,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib
 from rich.progress import Progress
+from typing import Any
 
 # CUSTOM
 from category_functions import is_ordinal
-from dataclass_objects import *
-from helpers import *
+from dataclass_objects import expVisual, expConfig
+from support.plotting_helpers import is_empty_axis
+from support.processing_helpers import symlog
+from support.parsing_helpers import create_path
 
 matplotlib.use('Agg') # No interactive window, purely file-based rendering
 

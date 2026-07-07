@@ -3,8 +3,8 @@ from torch import nn
 from torch.nn import ReLU, Tanh
 
 # CUSTOM
-from helpers import get_name, config, update_config
-
+from support.config import config, update_config
+from support.parsing_helpers import get_name
 
 class IPLo(nn.Module):
     def __init__(self):

@@ -5,7 +5,7 @@ from torch import nn
 
 # CUSTOM
 from visualisation import plot_activation_tests
-from helpers import df, df_train, df_test, config
+from support.config import df, df_train, df_test, config
 from activation_testing import complete_activation_test
 
 # Separate numeric columns for different preprocessing

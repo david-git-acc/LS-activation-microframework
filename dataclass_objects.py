@@ -9,12 +9,14 @@ import json
 import hashlib
 from math import ceil
 from torch.utils.data import TensorDataset, DataLoader
+import copy
 
 # CUSTOM
 from networks import ActivationNetwork
-from helpers import (validate_activation_df_column_names, sampling_indices, get_n_colours, dummy_idfunc, 
-                      determine_plot_type, generate_plot_title, arithmetic_mean, is_hashable, smart_str, safe_asdict,
-                      params2grad_vector, pad_torch_stack, get_name, testloss_dummy)
+from support.parsing_helpers import validate_activation_df_column_names, is_hashable, smart_str, safe_asdict, get_name
+from support.processing_helpers import sampling_indices, params2grad_vector, pad_torch_stack
+from support.plotting_helpers import get_n_colours, determine_plot_type, generate_plot_title
+from support.torch_test_metrics import arithmetic_mean
 
 ################################# REST ########################################################
 
@@ -119,10 +121,10 @@ class expConfig() :
         self.kfold_aggfunc_names = validate_activation_df_column_names(self.kfold_aggfuncs, self.kfold_aggfunc_names)
         
         # Mean is non-optional for expConfig, we need it for when we collect results over test data
-        if arithmetic_mean not in self.kfold_aggfuncs :
+        if "arithmetic_mean" not in [get_name(f) for f in self.kfold_aggfuncs] : # Use this since funcs have no ==
             self.kfold_aggfunc_names.append("mean")
             self.kfold_aggfuncs += (arithmetic_mean, )
-    
+                
     def savename(self , maxlen : int = 10) -> str :
         
         """Generates a deterministic savename for each experiment based on its deterministically string-able properties.
@@ -335,9 +337,12 @@ class expInput() :
     def save_state(self) -> None :
         self.saved_params["anet_model"] = { param : value.clone() 
                                            for param, value in self.anet_model.state_dict().items() }
+        self.saved_params["optim"] = copy.deepcopy(self.optim.state_dict())
+        
     
     def reload_state(self) -> None :
         self.anet_model.load_state_dict(self.saved_params["anet_model"])
+        self.optim.load_state_dict(self.saved_params["optim"])
     
     @property
     def n_captures(self) -> int :

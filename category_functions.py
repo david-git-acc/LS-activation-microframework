@@ -1,14 +1,12 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
-from helpers import dummy_idfunc
 from abc import ABC, abstractmethod
 import torch
-from torch import nn
 
 ### CUSTOM
 from dataclass_objects import expInput, experimentResult
-from helpers import params2grad_vector
+from support.processing_helpers import params2grad_vector, dummy_idfunc
 
 
 @dataclass

@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 ### CUSTOM
-from dataclass_objects import expInputParams, experimentResult
+from dataclass_objects import expInput, experimentResult
 from helpers import params2grad_vector
 
 
@@ -70,7 +70,7 @@ class categoryExperimentTracker(ABC) :
     
     """
     
-    def __init__(self, xpi : expInputParams) :
+    def __init__(self, xpi : expInput) :
         self.xpi = xpi
         self._category = "placeholder"
         self._data = torch.Tensor([])
@@ -93,7 +93,7 @@ class categoryExperimentTracker(ABC) :
             The torch Tensor containing all the recorded data.
         """
         
-        if torch.numel(self._data) == 0 :
+        if torch.isnan(self._data).all() :
             raise ValueError(f"No data attribute set. Please define a self._data for tracker {self.__class__.__name__}")
         return self._data
     
@@ -121,7 +121,7 @@ class gradExperimentTracker(categoryExperimentTracker) :
     """categoryExperimentTracker implementation for gradient data. Stores epochs and parameters by default.
     """
     
-    def __init__(self, xpi : expInputParams) :
+    def __init__(self, xpi : expInput) :
         super().__init__(xpi)
         self._category = "grad"
         self._data = torch.full(size = (xpi.n_captures, *self.xpi.nabla_shape), fill_value = torch.nan)
@@ -138,7 +138,7 @@ class testlossExperimentTracker(categoryExperimentTracker) :
     """categoryExperimentTracker implementation for testloss data. Stores epochs only by default.
     """
     
-    def __init__(self, xpi : expInputParams) :
+    def __init__(self, xpi : expInput) :
         super().__init__(xpi)
         self._category = "testloss"
         self._data = torch.full(size = (xpi.n_captures,), fill_value = torch.nan)
@@ -156,7 +156,7 @@ class testpredsExperimentTracker(categoryExperimentTracker) :
     a NaN-aware metric e.g those found in helpers (arithmetic_mean, variance, log_average), this will not impact the results.
     """
     
-    def __init__(self, xpi : expInputParams) :
+    def __init__(self, xpi : expInput) :
         super().__init__(xpi)
         self._category = "testpreds"
         self._data = torch.full(size = (xpi.n_captures, len(xpi.Y_test_tensor)), fill_value = torch.nan) 
@@ -181,7 +181,7 @@ class categoryExperimentLogger() :
         categories: a single category or tuple of categories that we are interested in recording from.
     """
     
-    xpi : expInputParams
+    xpi : expInput
     categories : tuple[str, ...] | str = "all"
     
     def __post_init__(self) :
@@ -192,7 +192,7 @@ class categoryExperimentLogger() :
             self.categories = (self.categories, )
             
         self.categories = tuple(self.categories) # Initialise all relevant trackers
-        self.trackers = { cat : category_registry[cat].tracker(self.xpi) for cat in self.categories }
+        self.trackers = { cat : category_registry[cat].tracker(self.xpi) for cat in self.categories } # meow
 
     @property
     def data(self) -> dict[str, torch.Tensor] :
@@ -236,12 +236,12 @@ def category2measure_types(category : str) -> tuple[str, ...] :
     
     return category_registry[category].measure_types
 
-def get_trackers_from_categories(xpi : expInputParams, 
+def get_trackers_from_categories(xpi : expInput, 
                                  categories : list[str] | tuple[str, ...]) -> list[categoryExperimentTracker] :
     
     return [category_registry[cat].tracker(xpi) for cat in categories]
 
-def get_all_trackers(xpi : expInputParams) -> list[categoryExperimentTracker] :
+def get_all_trackers(xpi : expInput) -> list[categoryExperimentTracker] :
     return [category_registry[cat].tracker(xpi) for cat in category_registry]
 
 

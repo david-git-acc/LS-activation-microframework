@@ -76,7 +76,7 @@ def plot_activation(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> Non
         case _ :
             raise ValueError(f"Invalid plot type for visualisation {plot_params['plot_type']}")
 
-def plot_actexp_figure_data(xvp : expVisualParams, results_df : pd.DataFrame,
+def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
                             xvp_triple : tuple[str, str, str], save2csv : bool = True,
                             nskip : int = 1, verbose : bool = True) -> None :
     
@@ -84,7 +84,7 @@ def plot_actexp_figure_data(xvp : expVisualParams, results_df : pd.DataFrame,
     Given an experiment visual params dataclass, result combination type, plot the figure and all axes and curves upon it.
     
     Params:
-        xvp: the experiment visual params object, generated from expConfigParams.
+        xvp: the experiment visual params object, generated from expConfig.
         
         results_df: dataframe of findings, extracted from main total_activations_df via the xvp triple over
         (eval_type, category, measure_type). Should already be extracted before using this code; do not pass in TAD.
@@ -154,24 +154,24 @@ def plot_actexp_figure_data(xvp : expVisualParams, results_df : pd.DataFrame,
     plt.close(fig)
     
     
-def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp : expConfigParams,
+def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp : expConfig,
                           verbose : bool = True) -> None :
 
     """
-    Plot all figures from the total results dataframe, given expConfigParams used to generate said results.
+    Plot all figures from the total results dataframe, given expConfig used to generate said results.
     
     Params:
         results: dictionary of Pandas dataframes, each of which stores results over 
         a given (eval_type, category, measure_type) combination. Each combination requires its own figure.
         
-        xp: expConfigParams object used to generate results, usually via complete_activation_test. This 
+        xp: expConfig object used to generate results, usually via complete_activation_test. This 
         is immediately discarded to create the experimentVisualParams.
         
         verbose: whether to show detailed work-in-progress for plotting.
     
     """
 
-    # In theory could swap expConfigParams as input arg for xvp directly, but more clear this way
+    # In theory could swap expConfig as input arg for xvp directly, but more clear this way
     xvp = xp.exp_vis_params()
     print(f"Save folder created at: {xvp.save_folder}")
 

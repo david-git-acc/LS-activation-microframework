@@ -19,7 +19,7 @@ from helpers import (validate_activation_df_column_names, sampling_indices, get_
 ################################# REST ########################################################
 
 @dataclass
-class expConfigParams() :
+class expConfig() :
     
     """
     Main dataclass for conducting activation experiments efficiently. This dataclass is designed
@@ -118,7 +118,7 @@ class expConfigParams() :
         self.activation_names = validate_activation_df_column_names(self.activations, self.activation_names)
         self.kfold_aggfunc_names = validate_activation_df_column_names(self.kfold_aggfuncs, self.kfold_aggfunc_names)
         
-        # Mean is non-optional for expConfigParams, we need it for when we collect results over test data
+        # Mean is non-optional for expConfig, we need it for when we collect results over test data
         if arithmetic_mean not in self.kfold_aggfuncs :
             self.kfold_aggfunc_names.append("mean")
             self.kfold_aggfuncs += (arithmetic_mean, )
@@ -171,13 +171,13 @@ class expConfigParams() :
             "experiment" : self,
         }
         
-        return expVisualParams(**main_params)
+        return expVisual(**main_params)
     
     def exp_inp_params(self) :
-        return expInputParams(**safe_asdict(self.__dict__, expInputParams))
+        return expInput(**safe_asdict(self.__dict__, expInput))
     
 @dataclass
-class expVisualParams() :
+class expVisual() :
     
     """
     This is the visual parameters dataclass for a given experiment. 
@@ -193,7 +193,7 @@ class expVisualParams() :
     save_folder : str
     activation_colours : dict[str, Any]
     kf_aggfunc_linestyles : dict[str, str]
-    experiment : expConfigParams
+    experiment : expConfig
     
     def generate_figure_params(self, eval_type : str, category : str, measure_type : str,
                                plots_per_row : int = 3) -> dict[str, Any] :
@@ -247,7 +247,7 @@ class expVisualParams() :
             test_type: what test function the axes is for. Every axes object is for a specific test function.
             
             fig_params: the associated dictionary of parameters for the parent figure object. Use generate_figure_params()
-            if this is not available from the same dataclass object expVisualParams.
+            if this is not available from the same dataclass object expVisual.
             
             nskip: Number of initial epochs to skip. Only valid for epochs or ordered x-axes. 
 
@@ -306,13 +306,14 @@ class expVisualParams() :
         return plot_params
     
 @dataclass
-class expInputParams() :
+class expInput() :
     X_train_tensor : torch.Tensor
     X_test_tensor : torch.Tensor
     Y_train_tensor : torch.Tensor
     Y_test_tensor : torch.Tensor 
     anet_model : ActivationNetwork
     my_loss : nn.Module = nn.CrossEntropyLoss()
+    optim_type : type[torch.optim.Adam] | type[torch.optim.SGD] = torch.optim.Adam
     epochs : int = 500 
     lr : float = 0.001
     batch_size : int = -1
@@ -327,6 +328,7 @@ class expInputParams() :
         self.training_dataloader = DataLoader(self.training_dataset, self.batch_size, shuffle = True )
         
         self.nabla_shape = params2grad_vector(self.anet_model.parameters()).size()
+        self.optim = self.optim_type(self.anet_model.parameters(), lr = self.lr)
         self.saved_params : dict[str, Any] = {}
         
     
@@ -369,7 +371,7 @@ class experimentResult() :
     
     """
     Simple container class for efficiently representing all categories of result from an experiment. 
-        Not intended for any complex calculations, unlike expConfigParams or expVisualParams.
+        Not intended for any complex calculations, unlike expConfig or expVisual.
     
     Params:
         _results: the dictionary of results, where each key is a category and the value is the tensor of results.

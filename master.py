@@ -1,6 +1,6 @@
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from networks import ShortNetwork
-from dataclass_objects import expConfigParams
+from dataclass_objects import expConfig
 from torch import nn
 
 # CUSTOM
@@ -16,7 +16,7 @@ nonnumerics = [col for col in df.columns if col not in set(numeric_columns)]
 feature_transforms = ( (numeric_columns, StandardScaler()), )
 label_transforms = ( (nonnumerics, OrdinalEncoder(handle_unknown = "use_encoded_value", unknown_value = -1)), )
 
-experiment_params = expConfigParams(
+experiment_params = expConfig(
                         df_train, df_test, 
                         config["labels"], 
                         ShortNetwork, 

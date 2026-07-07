@@ -10,16 +10,16 @@ from rich.progress import Progress
 
 # CUSTOM
 from helpers import *
-from dataclass_objects import expConfigParams, monitorParams, expInputParams, experimentResult
+from dataclass_objects import expConfig, monitorParams, expInput, experimentResult
 from category_functions import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
 from activations import LS
 
-def experiment(xpi : expInputParams) -> experimentResult : 
+def experiment(xpi : expInput) -> experimentResult : 
     
     """
     Main experiment code for the project. Takes in tensors, model, loss, and metadata and returns result as a
-    simple experimentResult dataclass for ease of use. Ideal for passing in expConfigParams dataclass as input.
+    simple experimentResult dataclass for ease of use. Ideal for passing in expConfig dataclass as input.
     
     This is the main driver function for multiple experiment classes; please be careful when 
     modifying or removing functionality.
@@ -42,7 +42,6 @@ def experiment(xpi : expInputParams) -> experimentResult :
     """
     
     xpi.save_state()
-    optim = torch.optim.Adam(xpi.anet_model.parameters(), lr = xpi.lr)
     record_epochs = set(sampling_indices(xpi.epochs, xpi.n_captures))
     
     # Used for data recording
@@ -53,11 +52,11 @@ def experiment(xpi : expInputParams) -> experimentResult :
         
         xpi.anet_model.train()
         for X_train_batch, Y_train_batch in xpi.training_dataloader :
-            optim.zero_grad()
+            xpi.optim.zero_grad()
             predictions = xpi.anet_model(X_train_batch)
             loss : torch.Tensor = xpi.my_loss(predictions, Y_train_batch)
             loss.backward()
-            optim.step()
+            xpi.optim.step()
         
         # Only capture the data at specified record times
         if epoch not in record_epochs : continue
@@ -82,7 +81,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
     
     """
     Same as experiment() but taken directly from the dataframe to minimise boilerplate code. Also excellent for 
-    adapting with expConfigParams() dataclass. 
+    adapting with expConfig() dataclass. 
 
     Params: 
         df_train: Dataframe containing train data.
@@ -117,7 +116,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
     X_train, X_test = dfs2train_test(df_train_X, df_test_X, X_transformer, dtype = X_type)
     Y_train, Y_test = dfs2train_test(df_train_Y, df_test_Y, Y_transformer, dtype = Y_type)
     
-    return experiment(expInputParams(X_train, X_test, Y_train, Y_test, model, my_loss = loss, 
+    return experiment(expInput(X_train, X_test, Y_train, Y_test, model, my_loss = loss, 
                       epochs = epochs, batch_size = batch_size, max_samples = max_samples))
 
         
@@ -132,7 +131,7 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
     
     """
     Perform Stratified K-Fold (SKF) cross-validation on a dataframe. Highly compatible with 
-    expConfigParams() dataclass using safe_asdict helper function. 
+    expConfig() dataclass using safe_asdict helper function. 
     
     Params:
         df: the dataframe to perform SKF with. Please ensure no test samples are stored here.
@@ -269,18 +268,18 @@ def post_experiment_test_testpreds(tps : torch.Tensor, over : str = "test_sample
     return post_experiment_test_grad(tps, over, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
 
 
-def complete_activation_test(exp_params : expConfigParams, verbose : bool = False) -> dict[tuple[str,str,str], pd.DataFrame] :
+def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> dict[tuple[str,str,str], pd.DataFrame] :
     
     """
     Orchestrator / god function to perform entire experiment, from training to kfold and testing given a set of 
-    expConfigParams. Designed to minimise boilerplate and facilitate ease of use + modularity. 
+    expConfig. Designed to minimise boilerplate and facilitate ease of use + modularity. 
     
     Params:
-        exp_params: the expConfigParams dataclass containing all important data about the experiment. 
+        exp_params: the expConfig dataclass containing all important data about the experiment. 
         verbose: boolean detailing whether to provide details over current execution cycle.
 
-    NOTE: if no category is specified in expConfigParams, it will use all categories. Remember to add category parameters
-    to the expConfigParams dataclass inside dataclass_objects.py.
+    NOTE: if no category is specified in expConfig, it will use all categories. Remember to add category parameters
+    to the expConfig dataclass inside dataclass_objects.py.
     
     Category selection is a tuple containing category parameters, each of which stores the triple combination of 
     category name, the associated tester function over that category (not to be confused with test functions,
@@ -345,7 +344,7 @@ def complete_activation_test(exp_params : expConfigParams, verbose : bool = Fals
     return total_activation_dfs
 
 
-def LS_alpha_sensitivity_test(exp_params : expConfigParams, verbose : bool = True) -> dict[tuple[str, str, str], pd.DataFrame] :
+def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> dict[tuple[str, str, str], pd.DataFrame] :
     
     """
     Perform an alpha sensitivity test on an LS-converted activation function. Note that this implicitly assumes that
@@ -358,7 +357,7 @@ def LS_alpha_sensitivity_test(exp_params : expConfigParams, verbose : bool = Tru
     exp_params tuple of activation functions; if there is more than one, takes the first only. 
 
     Params:
-        exp_params: the expConfigParams dataclass; same useage as complete_activation_test.
+        exp_params: the expConfig dataclass; same useage as complete_activation_test.
         verbose: boolean detailing whether to provide details over current execution cycle.
         categories: tuple of strings containing which categories (e.g grad, testloss, testpreds) are desired to evaluate.
 

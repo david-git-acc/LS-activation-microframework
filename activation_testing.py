@@ -13,12 +13,11 @@ from support.processing_helpers import (sampling_indices, pd_data_transformer, d
 from support.config import config
 from support.torch_test_metrics import arithmetic_mean, testloss_dummy
 from support.parsing_helpers import name2index, safe_asdict
-
-
-from dataclass_objects import expConfig, monitorParams, expInput, experimentResult
+from dataclass_objects import expConfig, expInput, experimentResult
 from category_functions import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
 from activations import LS
+
 
 def experiment(xpi : expInput) -> experimentResult : 
     
@@ -36,7 +35,7 @@ def experiment(xpi : expInput) -> experimentResult :
         Y_train_tensor : 1 x n or n x 1 training label matrix.
         Y_test_tensor : 1 x n_test or n_test x 1 testing label matrix.
         anet_model : the model to perform the experiment with.
-        my_loss : the loss function to evaluate the model.
+        target_loss : the loss function to evaluate the model.
         epochs : number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
         lr : constant learning rate value. In theory, you could pass in a variable learning rate here (not recommended).
         batch_size : number of training examples to use per gradient descent step. Defaults to -1 (all examples per step).
@@ -59,7 +58,7 @@ def experiment(xpi : expInput) -> experimentResult :
         for X_train_batch, Y_train_batch in xpi.training_dataloader :
             xpi.optim.zero_grad()
             predictions = xpi.anet_model(X_train_batch)
-            loss : torch.Tensor = xpi.my_loss(predictions, Y_train_batch)
+            loss : torch.Tensor = xpi.target_loss(predictions, Y_train_batch)
             loss.backward()
             xpi.optim.step()
         
@@ -121,11 +120,9 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
     X_train, X_test = dfs2train_test(df_train_X, df_test_X, X_transformer, dtype = X_type)
     Y_train, Y_test = dfs2train_test(df_train_Y, df_test_Y, Y_transformer, dtype = Y_type)
     
-    return experiment(expInput(X_train, X_test, Y_train, Y_test, model, my_loss = loss, 
+    return experiment(expInput(X_train, X_test, Y_train, Y_test, model, target_loss = loss, 
                       epochs = epochs, batch_size = batch_size, max_samples = max_samples))
 
-        
-        
 def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | list[str], 
                 loss : nn.Module,
                 feature_transforms : tuple[tuple[list[str], Any], ...] = (), 
@@ -176,102 +173,6 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
 
     # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
     return experimentResult(exp_results)
-
-  
-  
-def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
-                          test_suite : tuple[Callable, ...] = (), test_columns : list[str] = [], 
-                          kfold_aggfuncs : tuple[Callable, ...] = (arithmetic_mean,), 
-                          kfold_columns : list[str] = ["mean"],
-                          expected_ndims : int = 2) -> pd.DataFrame :
-    
-    """
-    Perform the function test suite on a designated set of test functions with k-folds, then collapses over the k-folds using
-    an aggregation function (typically mean) and returns results as a Pandas dataframe.
-    
-    Params:
-        gms : list of gradient matrices over folds (3D: (epochs, parameters, folds) - although it need not be this shape)
-        over: dimension to check over. Can be set to a different axis manually.
-        test_suite: list of functions to test on.
-        test_columns: names of each test. If no value given, uses the function names.
-        kfold_aggfuncs: the aggregation functions to collapse a dimension over. Always becomes mean() if number of folds = 1.
-        expected_ndims : number of dimensions that the data is originally meant to be in (before folds). Used for validation.
-        
-    NOTE: This function is the main function for post experiment testing; testloss and testpreds rely on this one. Also,
-    remember that the last dimension must always be the kfold dimension, or bugs will occur - silently or not.
-
-
-    Returns:
-        result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
-    """
-    
-    mp = monitorParams(gms, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
-    mp.validate(expected_ndims = expected_ndims)
-     
-    # The dimensions to marginalise in are always all dimensions except the dimension we care about 
-    # + the kfold dimension (last)
-    dim = tuple(i for i in range(len(mp.X.size()) - 1 ) if i != name2index(over) ) 
-    
-    # Store everything we collect here
-    test_results = []
-    
-    # Store the column names in a given format so easier to store
-    df_columns = []
-    
-    # For each test function we compute the result and collapse all other dimensions using it, to get a 2D array (dim, folds)
-    for i, test_func in enumerate( test_suite ) : 
-        result = test_func(mp.X, dim = dim) # Make sure all test suite functions is NaN-aware + can handle any subset of dims
-        
-        # Then we collapse the fold dimension in different ways; these are important, will be covered later.
-        for j, kfold_aggfunc in enumerate( mp.kfold_aggfuncs ) :
-        
-            kfold_dim = len(result.size()) - 1
-        
-            collapsed_result = kfold_aggfunc(result, dim = kfold_dim )
-            data = collapsed_result.view(-1).numpy() # Convert to NumPy so easier to fit as a dataframe
-            test_results.append(data)
-            
-            df_column_name = (mp.test_function_names[i], mp.kfold_columns[j])
-            df_columns.append(df_column_name)
-    
-    assert len(set(df_columns)) == len(df_columns), f"Duplicate df columns. Please check testfuncs and kfold_aggfuncs"
-    test_results = np.asarray(test_results).T # Transpose to turn features into columns
-    result_df = pd.DataFrame(test_results, columns = df_columns)
-    
-    # Name the index based on if we measure epochs or otherwise
-    result_df.index.name = over[:-1] # Kill the "s", we view singularly
-        
-    return result_df    
-
-def post_experiment_test_testloss(tl : torch.Tensor, over : None = None,
-                          test_suite : None = None, test_columns : list[str] = [], 
-                          kfold_aggfuncs :  tuple[Callable, ...] = (arithmetic_mean,), 
-                          kfold_columns : list[str] = ["mean"]) -> pd.DataFrame :
-    
-    """
-    Same as post_experiment_test_grad, but for testloss. Identical logic.
-    Note that test_suite, over and test_columns are deprecated because only 1 dimension is supported.
-
-    Returns:
-        results_df: dataframe of results. Each column is a different agg-type.
-    """
-    
-    return post_experiment_test_grad(tl, "epochs", ( testloss_dummy, ), ["test loss"], 
-                                     kfold_aggfuncs, kfold_columns, expected_ndims = 1)
-
-def post_experiment_test_testpreds(tps : torch.Tensor, over : str = "test_samples",
-                          test_suite : tuple[Callable, ...] = (), test_columns : list[str] = [], 
-                          kfold_aggfuncs : tuple[Callable, ...] = (arithmetic_mean,), 
-                          kfold_columns : list[str] = ["mean"]) -> pd.DataFrame :
-    
-    """
-    Same as post_experiment_test_grad, but for test predictions (testpreds). Identical logic.
-    
-    Returns:
-        result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
-    """
-        
-    return post_experiment_test_grad(tps, over, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
 
 
 def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> dict[tuple[str,str,str], pd.DataFrame] :

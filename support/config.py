@@ -1,18 +1,12 @@
 import torch
-from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
-from torch.nn.utils import parameters_to_vector
-from sklearn.compose import ColumnTransformer
 from typing import Any, Callable
-from pathlib import Path
-import inspect
-from dataclasses import asdict
-from matplotlib import pyplot as plt
 import yaml
 import random
 from sklearn.model_selection import train_test_split
 
+# CUSTOM
 from support.torch_test_metrics import arithmetic_mean, variance, log_average
 
 # INITIALISATION

@@ -3,11 +3,22 @@ from dataclasses import dataclass
 from typing import Callable
 from abc import ABC, abstractmethod
 import torch
+import pandas as pd
+import numpy as np 
 
 ### CUSTOM
-from dataclass_objects import expInput, experimentResult
-from support.processing_helpers import params2grad_vector, dummy_idfunc
+from dataclass_objects import expInput, experimentResult, monitorParams
+from support.processing_helpers import params2grad_vector
+from support.parsing_helpers import name2index
+from support.torch_test_metrics import arithmetic_mean, testloss_dummy
 
+# HOW TO ADD NEW CATEGORIES:
+# To add a new category, define the tracker (experimentTracker), the tester (post_experiment_test_(categoryname)),
+# the name and measure types, and put it in the category registry. Then it will be available as a logging option.
+
+# Please add comment lines to demarcate different category types for clarity.
+
+### ABSTRACT DEFINITION CLASSES
 
 @dataclass
 class categoryParams() :
@@ -30,20 +41,8 @@ class categoryParams() :
     
     name : str
     tracker : type[categoryExperimentTracker]
+    tester : Callable
     measure_types : tuple[str, ...] = ()
-    _tester : Callable = dummy_idfunc
-    
-    @property
-    def tester(self) :
-        
-        # Need lazy evaluation to make this happen without circular import error
-        # I hate that this is necessary, but there is no other way to get this to work without fusing .py files
-        if self._tester.__name__ == "dummy_idfunc":
-            import activation_testing
-            self._tester = getattr(activation_testing, "post_experiment_test_" + self.name)
-        
-        return self._tester
-    
     
 class categoryExperimentTracker(ABC) :
     
@@ -113,6 +112,73 @@ class categoryExperimentTracker(ABC) :
         """
         pass
     
+######################################## GRAD ##################################################
+    
+# This is for grad, but it generalises well, so you can use this as a base function to define post_experiment_test on
+def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
+                          test_suite : tuple[Callable, ...] = (), test_columns : list[str] = [], 
+                          kfold_aggfuncs : tuple[Callable, ...] = (arithmetic_mean,), 
+                          kfold_columns : list[str] = ["mean"],
+                          expected_ndims : int = 2) -> pd.DataFrame :
+    
+    """
+    Perform the function test suite on a designated set of test functions with k-folds, then collapses over the k-folds using
+    an aggregation function (typically mean) and returns results as a Pandas dataframe.
+    
+    Params:
+        gms : list of gradient matrices over folds (3D: (epochs, parameters, folds) - although it need not be this shape)
+        over: dimension to check over. Can be set to a different axis manually.
+        test_suite: list of functions to test on.
+        test_columns: names of each test. If no value given, uses the function names.
+        kfold_aggfuncs: the aggregation functions to collapse a dimension over. Always becomes mean() if number of folds = 1.
+        expected_ndims : number of dimensions that the data is originally meant to be in (before folds). Used for validation.
+        
+    NOTE: This function is the main function for post experiment testing; testloss and testpreds rely on this one. Also,
+    remember that the last dimension must always be the kfold dimension, or bugs will occur - silently or not.
+
+
+    Returns:
+        result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
+    """
+    
+    mp = monitorParams(gms, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
+    mp.validate(expected_ndims = expected_ndims)
+     
+    # The dimensions to marginalise in are always all dimensions except the dimension we care about 
+    # + the kfold dimension (last)
+    dim = tuple(i for i in range(len(mp.X.size()) - 1 ) if i != name2index(over) ) 
+    
+    # Store everything we collect here
+    test_results = []
+    
+    # Store the column names in a given format so easier to store
+    df_columns = []
+    
+    # For each test function we compute the result and collapse all other dimensions using it, to get a 2D array (dim, folds)
+    for i, test_func in enumerate( test_suite ) : 
+        result = test_func(mp.X, dim = dim) # Make sure all test suite functions is NaN-aware + can handle any subset of dims
+        
+        # Then we collapse the fold dimension in different ways; these are important, will be covered later.
+        for j, kfold_aggfunc in enumerate( mp.kfold_aggfuncs ) :
+        
+            kfold_dim = len(result.size()) - 1
+        
+            collapsed_result = kfold_aggfunc(result, dim = kfold_dim )
+            data = collapsed_result.view(-1).numpy() # Convert to NumPy so easier to fit as a dataframe
+            test_results.append(data)
+            
+            df_column_name = (mp.test_function_names[i], mp.kfold_columns[j])
+            df_columns.append(df_column_name)
+    
+    assert len(set(df_columns)) == len(df_columns), f"Duplicate df columns. Please check testfuncs and kfold_aggfuncs"
+    test_results = np.asarray(test_results).T # Transpose to turn features into columns
+    result_df = pd.DataFrame(test_results, columns = df_columns)
+    
+    # Name the index based on if we measure epochs or otherwise
+    result_df.index.name = over[:-1] # Kill the "s", we view singularly
+        
+    return result_df    
+
     
 class gradExperimentTracker(categoryExperimentTracker) :
     
@@ -131,6 +197,8 @@ class gradExperimentTracker(categoryExperimentTracker) :
         self._data[record_index, :] = self.track()
         
 
+######################################## TESTLOSS ##################################################
+
 class testlossExperimentTracker(categoryExperimentTracker) :
     
     """categoryExperimentTracker implementation for testloss data. Stores epochs only by default.
@@ -142,10 +210,30 @@ class testlossExperimentTracker(categoryExperimentTracker) :
         self._data = torch.full(size = (xpi.n_captures,), fill_value = torch.nan)
     
     def track(self) -> torch.Tensor :
-        return self.xpi.my_loss(self.xpi.anet_model(self.xpi.X_test_tensor), self.xpi.Y_test_tensor).detach().cpu().item()
+        return self.xpi.target_loss(self.xpi.anet_model(self.xpi.X_test_tensor), self.xpi.Y_test_tensor).detach().cpu().item()
     
     def record(self, record_index : int = 0) -> None :
         self._data[record_index] = self.track()
+        
+
+def post_experiment_test_testloss(tl : torch.Tensor, over : None = None,
+                          test_suite : None = None, test_columns : list[str] = [], 
+                          kfold_aggfuncs :  tuple[Callable, ...] = (arithmetic_mean,), 
+                          kfold_columns : list[str] = ["mean"]) -> pd.DataFrame :
+    
+    """
+    Same as post_experiment_test_grad, but for testloss. Identical logic.
+    Note that test_suite, over and test_columns are deprecated because only 1 dimension is supported.
+
+    Returns:
+        results_df: dataframe of results. Each column is a different agg-type.
+    """
+    
+    return post_experiment_test_grad(tl, "epochs", ( testloss_dummy, ), ["test loss"], 
+                                     kfold_aggfuncs, kfold_columns, expected_ndims = 1)
+
+######################################## TESTPREDS ##################################################
+
 
 class testpredsExperimentTracker(categoryExperimentTracker) :
     
@@ -164,6 +252,23 @@ class testpredsExperimentTracker(categoryExperimentTracker) :
     
     def record(self, record_index : int = 0) -> None :
         self._data[record_index, :] = self.track()  
+
+
+def post_experiment_test_testpreds(tps : torch.Tensor, over : str = "test_samples",
+                          test_suite : tuple[Callable, ...] = (), test_columns : list[str] = [], 
+                          kfold_aggfuncs : tuple[Callable, ...] = (arithmetic_mean,), 
+                          kfold_columns : list[str] = ["mean"]) -> pd.DataFrame :
+    
+    """
+    Same as post_experiment_test_grad, but for test predictions (testpreds). Identical logic.
+    
+    Returns:
+        result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
+    """
+        
+    return post_experiment_test_grad(tps, over, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
+
+# LOGGER CLASS
 
 @dataclass 
 class categoryExperimentLogger() :
@@ -229,35 +334,23 @@ class categoryExperimentLogger() :
         return experimentResult(self.data)
 
 
-# Helper functions - unused but may become useful later
-def category2measure_types(category : str) -> tuple[str, ...] :
-    
-    return category_registry[category].measure_types
-
-def get_trackers_from_categories(xpi : expInput, 
-                                 categories : list[str] | tuple[str, ...]) -> list[categoryExperimentTracker] :
-    
-    return [category_registry[cat].tracker(xpi) for cat in categories]
-
-def get_all_trackers(xpi : expInput) -> list[categoryExperimentTracker] :
-    return [category_registry[cat].tracker(xpi) for cat in category_registry]
-
-
-
 # When adding any new category, please instantiate and specify all parameters here to avoid data redundancy
 # Also, keep it in keyword argument format even if not necessary, for clarity
 category_registry : dict[str, categoryParams] = {
     "grad" : categoryParams(name = "grad", 
                             measure_types = ("epochs", "params"),
-                            tracker = gradExperimentTracker
+                            tracker = gradExperimentTracker,
+                            tester = post_experiment_test_grad
                             ),
     "testloss" : categoryParams(name = "testloss", 
                                 measure_types = ("epochs",),
-                                tracker = testlossExperimentTracker
+                                tracker = testlossExperimentTracker,
+                                tester = post_experiment_test_testloss
                                 ),
     "testpreds" : categoryParams(name = "testpreds", 
                                  measure_types = ("epochs", "test_samples"),
-                                 tracker = testpredsExperimentTracker
+                                 tracker = testpredsExperimentTracker,
+                                 tester = post_experiment_test_testpreds
                                  )
 }
 
@@ -265,3 +358,4 @@ ordinal_measure_types : set[str] = {"epochs", "layers"}
 
 def is_ordinal(measure_type : str) -> bool :
     return measure_type in ordinal_measure_types
+

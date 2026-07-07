@@ -314,7 +314,7 @@ class expInput() :
     Y_train_tensor : torch.Tensor
     Y_test_tensor : torch.Tensor 
     anet_model : ActivationNetwork
-    my_loss : nn.Module = nn.CrossEntropyLoss()
+    target_loss : nn.Module = nn.CrossEntropyLoss()
     optim_type : type[torch.optim.Adam] | type[torch.optim.SGD] = torch.optim.Adam
     epochs : int = 500 
     lr : float = 0.001

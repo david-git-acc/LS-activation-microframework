@@ -10,11 +10,12 @@ import numpy as np
 from dataclass_objects import expInput, experimentResult, monitorParams
 from support.processing_helpers import params2grad_vector
 from support.parsing_helpers import name2index
-from support.torch_test_metrics import arithmetic_mean, testloss_dummy
+from support.torch_reducers import arithmetic_mean, donothing_dummy
 
 # HOW TO ADD NEW CATEGORIES:
 # To add a new category, define the tracker (experimentTracker), the tester (post_experiment_test_(categoryname)),
-# the name and measure types, and put it in the category registry. Then it will be available as a logging option.
+# the name and measure types, and put it in the category registry as a categoryParams instance object. Then it will
+# be available as a logging option.
 
 # Please add comment lines to demarcate different category types for clarity.
 
@@ -61,7 +62,7 @@ class categoryExperimentTracker(ABC) :
     Each experiment tracker is made unique by two identifiers which together form a composite key for the data;
 
     Params:
-        xpi: experimentInputParams object; stores the actual data in the experiment; this can change. 
+        xpi: experimentInput object; stores the actual data in the experiment; this can change. 
         category: the string name for the category (e.g "grad" or "testloss"). 
         data: the torch tensor containing all recorded data of the tracker during experimentation.
     
@@ -117,8 +118,8 @@ class categoryExperimentTracker(ABC) :
 # This is for grad, but it generalises well, so you can use this as a base function to define post_experiment_test on
 def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
                           test_suite : tuple[Callable, ...] = (), test_columns : list[str] = [], 
-                          kfold_aggfuncs : tuple[Callable, ...] = (arithmetic_mean,), 
-                          kfold_columns : list[str] = ["mean"],
+                          kf_reducers : tuple[Callable, ...] = (arithmetic_mean,), 
+                          kf_reducer_names : list[str] = ["mean"],
                           expected_ndims : int = 2) -> pd.DataFrame :
     
     """
@@ -130,7 +131,7 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
         over: dimension to check over. Can be set to a different axis manually.
         test_suite: list of functions to test on.
         test_columns: names of each test. If no value given, uses the function names.
-        kfold_aggfuncs: the aggregation functions to collapse a dimension over. Always becomes mean() if number of folds = 1.
+        kf_reducers: the aggregation functions to collapse a dimension over. Always becomes mean() if number of folds = 1.
         expected_ndims : number of dimensions that the data is originally meant to be in (before folds). Used for validation.
         
     NOTE: This function is the main function for post experiment testing; testloss and testpreds rely on this one. Also,
@@ -141,7 +142,7 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
         result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
     """
     
-    mp = monitorParams(gms, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
+    mp = monitorParams(gms, test_suite, test_columns, kf_reducers, kf_reducer_names)
     mp.validate(expected_ndims = expected_ndims)
      
     # The dimensions to marginalise in are always all dimensions except the dimension we care about 
@@ -155,11 +156,11 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
     df_columns = []
     
     # For each test function we compute the result and collapse all other dimensions using it, to get a 2D array (dim, folds)
-    for i, test_func in enumerate( test_suite ) : 
+    for i, test_func in enumerate( mp.reducers ) : 
         result = test_func(mp.X, dim = dim) # Make sure all test suite functions is NaN-aware + can handle any subset of dims
         
         # Then we collapse the fold dimension in different ways; these are important, will be covered later.
-        for j, kfold_aggfunc in enumerate( mp.kfold_aggfuncs ) :
+        for j, kfold_aggfunc in enumerate( mp.kf_reducers ) :
         
             kfold_dim = len(result.size()) - 1
         
@@ -167,10 +168,10 @@ def post_experiment_test_grad(gms : torch.Tensor, over : str = "epochs",
             data = collapsed_result.view(-1).numpy() # Convert to NumPy so easier to fit as a dataframe
             test_results.append(data)
             
-            df_column_name = (mp.test_function_names[i], mp.kfold_columns[j])
+            df_column_name = (mp.reducer_names[i], mp.kf_reducer_names[j])
             df_columns.append(df_column_name)
     
-    assert len(set(df_columns)) == len(df_columns), f"Duplicate df columns. Please check testfuncs and kfold_aggfuncs"
+    assert len(set(df_columns)) == len(df_columns), f"Duplicate df columns. Please check testfuncs and kf_reducers"
     test_results = np.asarray(test_results).T # Transpose to turn features into columns
     result_df = pd.DataFrame(test_results, columns = df_columns)
     
@@ -218,8 +219,8 @@ class testlossExperimentTracker(categoryExperimentTracker) :
 
 def post_experiment_test_testloss(tl : torch.Tensor, over : None = None,
                           test_suite : None = None, test_columns : list[str] = [], 
-                          kfold_aggfuncs :  tuple[Callable, ...] = (arithmetic_mean,), 
-                          kfold_columns : list[str] = ["mean"]) -> pd.DataFrame :
+                          kf_reducers :  tuple[Callable, ...] = (arithmetic_mean,), 
+                          kf_reducer_names : list[str] = ["mean"]) -> pd.DataFrame :
     
     """
     Same as post_experiment_test_grad, but for testloss. Identical logic.
@@ -229,8 +230,8 @@ def post_experiment_test_testloss(tl : torch.Tensor, over : None = None,
         results_df: dataframe of results. Each column is a different agg-type.
     """
     
-    return post_experiment_test_grad(tl, "epochs", ( testloss_dummy, ), ["test loss"], 
-                                     kfold_aggfuncs, kfold_columns, expected_ndims = 1)
+    return post_experiment_test_grad(tl, "epochs", ( donothing_dummy, ), ["test loss"], 
+                                     kf_reducers, kf_reducer_names, expected_ndims = 1)
 
 ######################################## TESTPREDS ##################################################
 
@@ -256,8 +257,8 @@ class testpredsExperimentTracker(categoryExperimentTracker) :
 
 def post_experiment_test_testpreds(tps : torch.Tensor, over : str = "test_samples",
                           test_suite : tuple[Callable, ...] = (), test_columns : list[str] = [], 
-                          kfold_aggfuncs : tuple[Callable, ...] = (arithmetic_mean,), 
-                          kfold_columns : list[str] = ["mean"]) -> pd.DataFrame :
+                          kf_reducers : tuple[Callable, ...] = (arithmetic_mean,), 
+                          kf_reducer_names : list[str] = ["mean"]) -> pd.DataFrame :
     
     """
     Same as post_experiment_test_grad, but for test predictions (testpreds). Identical logic.
@@ -266,9 +267,16 @@ def post_experiment_test_testpreds(tps : torch.Tensor, over : str = "test_sample
         result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
     """
         
-    return post_experiment_test_grad(tps, over, test_suite, test_columns, kfold_aggfuncs, kfold_columns)
+    return post_experiment_test_grad(tps, over, test_suite, test_columns, kf_reducers, kf_reducer_names)
 
-# LOGGER CLASS
+########################################### EVAL METRICS ############################################
+
+
+
+
+#################################### LOGGER CLASS ########################################################
+
+
 
 @dataclass 
 class categoryExperimentLogger() :

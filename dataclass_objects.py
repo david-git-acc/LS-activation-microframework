@@ -13,10 +13,10 @@ import copy
 
 # CUSTOM
 from networks import ActivationNetwork
-from support.parsing_helpers import validate_activation_df_column_names, is_hashable, smart_str, safe_asdict, get_name
+from support.parsing_helpers import validate_activation_df_column_names, is_hashable, smart_str, safe_asdict, get_name, extract_tuple_list
 from support.processing_helpers import sampling_indices, params2grad_vector, pad_torch_stack
 from support.plotting_helpers import get_n_colours, determine_plot_type, generate_plot_title
-from support.torch_test_metrics import arithmetic_mean
+from support.torch_reducers import arithmetic_mean
 
 ################################# REST ########################################################
 
@@ -26,7 +26,7 @@ class expConfig() :
     """
     Main dataclass for conducting activation experiments efficiently. This dataclass is designed
     to compare the effectiveness of different activation functions on a given network using a set of 
-    test functions (test_functions) to marginalise unwanted dimensions and compare 1D arrays of results.
+    test functions (reducers) to marginalise unwanted dimensions and compare 1D arrays of results.
     
     Params:
         df_train: dataframe for train data.
@@ -43,10 +43,10 @@ class expConfig() :
         
         label_transforms: same as feature_transforms, but for labels.
         
-        test_functions: tuple of test functions to apply on finished results to marginalise unwanted dimensions. 
+        reducers: tuple of test functions to apply on finished results to marginalise unwanted dimensions. 
         activations: tuple of all activation functions to run in the experiment.
         
-        kfold_aggfuncs: tuple of all aggregation functions to collapse folds over in K-fold crossvalidation, 
+        kf_reducers: tuple of all aggregation functions to collapse folds over in K-fold crossvalidation, 
         e.g mean, variance, etc over folds. Note for test data it's interpreted as 1-fold crossvalidation, and only 
         mean is permitted for this.
         
@@ -65,9 +65,9 @@ class expConfig() :
         
         activation_names: list of display names for the activation functions, index-linked with activations.
 
-        test_function_names: list of display names for the test functions. Again, index-linked with test_functions.
+        reducer_names: list of display names for the test functions. Again, index-linked with reducers.
         
-        kfold_aggfunc_names: list of display names for the aggregation functions, index-linked with kfold_aggfuncs.
+        kf_reducer_names: list of display names for the aggregation functions, index-linked with kf_reducers.
         
         features_dtype: datatype of all features. Multiple datatypes for different features are not currently supported.
         
@@ -84,9 +84,9 @@ class expConfig() :
     loss : nn.Module
     feature_transforms : tuple[tuple[list[str], Any]]
     label_transforms : tuple[tuple[list[str], Any]]
-    test_functions : tuple[Callable, ...]
     activations : list[nn.Module] | tuple[nn.Module, ...]
-    kfold_aggfuncs : tuple[Callable, ...]
+    reducers : tuple[Callable, ...]
+    kf_reducers : tuple[Callable, ...]
     lr : float = 0.001
     kfold_k : int = 10
     n_alphas : int = 5
@@ -94,11 +94,11 @@ class expConfig() :
     max_samples : int = -1 # no limit
     epochs : int = 500
     activation_names : list[str] = field(default_factory = list)
-    test_function_names : list[str] = field(default_factory = list)
-    kfold_aggfunc_names : list[str] = field(default_factory = list)
+    reducer_names : list[str] = field(default_factory = list)
+    kf_reducer_names : list[str] = field(default_factory = list)
     features_dtype : torch.dtype = torch.float32
     labels_dtype : torch.dtype = torch.long
-    categories : tuple[str, ...] = ("grad", "testloss", "testpreds")
+    categories : tuple[str, ...] | str = ("grad",)
     
     def __post_init__(self) :
         
@@ -107,23 +107,27 @@ class expConfig() :
         """
         
         # YAML doesn't support tuples so convert in the program
-        for potentially_list_attribute in ( "activations", "test_functions", "kfold_aggfuncs" ) :
+        for potentially_list_attribute in ( "activations", "reducers", "kf_reducers", "categories" ) :
             attr = getattr(self, potentially_list_attribute)
-            if not isinstance(attr, tuple) :
+            if isinstance(attr, list) :
                 setattr(self, potentially_list_attribute, tuple(attr))
         
         # Placate the linter + consistency
         if isinstance(self.labels, str) : 
             self.labels = [self.labels]
+        
+        # Same as above
+        if isinstance(self.categories, str) :
+            self.categories = (self.categories, )
 
-        self.test_function_names = validate_activation_df_column_names(self.test_functions, self.test_function_names)
+        self.reducer_names = validate_activation_df_column_names(self.reducers, self.reducer_names)
         self.activation_names = validate_activation_df_column_names(self.activations, self.activation_names)
-        self.kfold_aggfunc_names = validate_activation_df_column_names(self.kfold_aggfuncs, self.kfold_aggfunc_names)
+        self.kf_reducer_names = validate_activation_df_column_names(self.kf_reducers, self.kf_reducer_names)
         
         # Mean is non-optional for expConfig, we need it for when we collect results over test data
-        if "arithmetic_mean" not in [get_name(f) for f in self.kfold_aggfuncs] : # Use this since funcs have no ==
-            self.kfold_aggfunc_names.append("mean")
-            self.kfold_aggfuncs += (arithmetic_mean, )
+        if "arithmetic_mean" not in {get_name(f) for f in self.kf_reducers } : # Use this since funcs have no ==
+            self.kf_reducer_names.append("mean")
+            self.kf_reducers += (arithmetic_mean, )
                 
     def savename(self , maxlen : int = 10) -> str :
         
@@ -155,7 +159,7 @@ class expConfig() :
         
         return "exp-" + readable_metadata + "-" + hash_monstrosity[:maxlen] 
     
-    def exp_vis_params(self) :
+    def exp_vis_params(self) -> expVisual :
         
         """
         Generates the visual parameters dataclass for this activation function. 
@@ -168,14 +172,14 @@ class expConfig() :
             "save_folder" : self.savename(),
             "activation_colours" : dict(zip(self.activation_names, 
                                             get_n_colours(len(self.activations)) )),
-            "kf_aggfunc_linestyles" : dict(zip(self.kfold_aggfunc_names, 
-                                               list(mlines.lineStyles.keys())[:len(self.kfold_aggfuncs)])),
+            "kf_aggfunc_linestyles" : dict(zip(self.kf_reducer_names, 
+                                               list(mlines.lineStyles.keys())[:len(self.kf_reducers)])),
             "experiment" : self,
         }
         
         return expVisual(**main_params)
     
-    def exp_inp_params(self) :
+    def exp_inp_params(self) -> expInput :
         return expInput(**safe_asdict(self.__dict__, expInput))
     
 @dataclass
@@ -213,8 +217,8 @@ class expVisual() :
             dictionary of parameters for the given figure, to be plugged in during visualisation.
         """
         
-        nrows = ceil(len(self.experiment.test_functions) / plots_per_row)
-        ncols = min(plots_per_row, len(self.experiment.test_functions))
+        nrows = ceil(len(self.experiment.reducers) / plots_per_row)
+        ncols = min(plots_per_row, len(self.experiment.reducers))
         
         # For testloss there are no tests we can perform, so will always be exactly 1 figure even if other tests exist
         special_cases = { "testloss" : (1, 1) }
@@ -241,12 +245,12 @@ class expVisual() :
         
         return fig_params
     
-    def generate_axes_params(self, test_type : str, fig_params : dict[str, Any], nskip: int = 5) -> dict[str, Any] :
+    def generate_axes_params(self, reducer : str, fig_params : dict[str, Any], nskip: int = 5) -> dict[str, Any] :
         
         """Generates parameters for the given axes object on a given figure.
         
         Params:
-            test_type: what test function the axes is for. Every axes object is for a specific test function.
+            reducer: what test function the axes is for. Every axes object is for a specific test function.
             
             fig_params: the associated dictionary of parameters for the parent figure object. Use generate_figure_params()
             if this is not available from the same dataclass object expVisual.
@@ -259,16 +263,16 @@ class expVisual() :
         
         match fig_params["plot_type"] :
             case "curve" :  # Remove the "s", e.g "epochs" -> "epoch", "params" -> "param"
-                xlabel, ylabel = (fig_params["measure_type"][:-1], test_type) 
+                xlabel, ylabel = (fig_params["measure_type"][:-1], reducer) 
             case "kde" | "histplot" :
-                xlabel, ylabel = (test_type, "frequency density")
+                xlabel, ylabel = (reducer, "frequency density")
             case _ :
                 xlabel, ylabel = ("x-axis placeholder label", "y-axis placeholder label")
 
         xticklabels = sampling_indices(self.experiment.epochs, self.experiment.max_samples)
         
         ax_params = { 
-            "test_type" : test_type, 
+            "reducer" : reducer, 
             "plot_type" : fig_params["plot_type"],
             "xlabel" : xlabel,
             "ylabel" : ylabel,
@@ -280,14 +284,14 @@ class expVisual() :
     
         return ax_params
 
-    def generate_plot_params(self, activation_name : str, agg_type : str, plot_type : str) :
+    def generate_plot_params(self, activation_name : str, kf_reducer : str, plot_type : str) :
         
         """
         Generates parameters for the given plot object for an axes object (axes itself not required).
         
         Params:
             activation_name: the name of the activation to plot over (determines colour).
-            agg_type: the type of aggregation function used (determines linestyle).
+            kf_reducer: the type of aggregation function used (determines linestyle).
             plot_type: the type of plot (kde, curve, histplot, etc).
 
         Returns:
@@ -296,11 +300,11 @@ class expVisual() :
         
         plot_params = {
             "activation_name" : activation_name,
-            "agg_type" : agg_type,
+            "kf_reducer" : kf_reducer,
             "plot_type" : plot_type,
-            "label" : f"fold-{agg_type}({activation_name})",
+            "label" : f"fold-{kf_reducer}({activation_name})",
             "colour" : self.activation_colours[activation_name],
-            "linestyle" : self.kf_aggfunc_linestyles[agg_type],
+            "linestyle" : self.kf_aggfunc_linestyles[kf_reducer],
             "markersize" : 4.0,
             "marker" : "^"
         }
@@ -320,6 +324,7 @@ class expInput() :
     lr : float = 0.001
     batch_size : int = -1
     max_samples : int = -1
+    categories : tuple[str, ...] = ("grad",)
     
     def __post_init__(self) : 
         # Use full-batch GD if no batch size given
@@ -352,24 +357,24 @@ class expInput() :
 @dataclass
 class monitorParams() :
     X : torch.Tensor
-    test_functions : tuple[Callable, ...]
-    test_function_names : str | list[str]
-    kfold_aggfuncs :  tuple[Callable, ...]
-    kfold_columns : str | list[str]
+    reducers : tuple[Callable, ...]
+    reducer_names : str | list[str]
+    kf_reducers :  tuple[Callable, ...]
+    kf_reducer_names : str | list[str]
     
     def validate(self, expected_ndims : int = 2) :
         
-        if not isinstance(self.test_function_names, list) : self.test_function_names = [self.test_function_names]
-        if not isinstance(self.kfold_aggfuncs, tuple) : self.kfold_aggfuncs = ( self.kfold_aggfuncs, )
-        if not isinstance(self.kfold_columns, list) : self.kfold_columns = [self.kfold_columns]
+        if not isinstance(self.reducer_names, list) : self.reducer_names = [self.reducer_names]
+        if not isinstance(self.kf_reducers, tuple) : self.kf_reducers = ( self.kf_reducers, )
+        if not isinstance(self.kf_reducer_names, list) : self.kf_reducer_names = [self.kf_reducer_names]
         
         is_test_data = len(self.X.size()) == expected_ndims
         
         # If it's test data then there are no folds, so to avoid having to duplicate this function we add a dummy one
         if is_test_data : self.X = self.X[..., None]
         
-        self.test_function_names = validate_activation_df_column_names(self.test_functions, self.test_function_names)
-        self.kfold_columns = validate_activation_df_column_names(self.kfold_aggfuncs, self.kfold_columns)
+        self.reducer_names = validate_activation_df_column_names(self.reducers, self.reducer_names)
+        self.kf_reducer_names = validate_activation_df_column_names(self.kf_reducers, self.kf_reducer_names)
 
 @dataclass
 class experimentResult() :
@@ -380,7 +385,6 @@ class experimentResult() :
     
     Params:
         _results: the dictionary of results, where each key is a category and the value is the tensor of results.
-        
         results: same as _results, stored for type checking and mypy purposes. No need to pass in any value here.
     """
     _results : dict[str, torch.Tensor] | list[experimentResult] = field(default_factory = dict)
@@ -388,10 +392,7 @@ class experimentResult() :
     is_aggregated : bool = False
     
     def __post_init__(self) :
-        self.validate()
-                    
-    def validate(self) :
-        
+
         # Handle k-fold assumption
         if isinstance(self._results, list) :
             
@@ -399,7 +400,6 @@ class experimentResult() :
             dict_results = {}
             
             for exp_result in self._results : 
-                exp_result.validate() # Just in case any children also have list elements
                 
                 for category, result in list(exp_result.results.items()) :              
                     if category in dict_results :
@@ -435,6 +435,88 @@ class experimentResult() :
         return max(self.get_ndims_tuple(), key = lambda x : x[1])[1]
 
 
+@dataclass
+class activationResults() :
+    results : dict[tuple[str, str, str], pd.DataFrame]
+    
+    def __post_init__(self) :
+        self.figure_coord_types : tuple[str, ...] = ("eval_type", "category", "measure_type",)
+        self.df_coord_types : tuple[str, ...] = ("reducer", "kf_reducer")
+        self.activation_coord_type : str = "activation"
+        self.coordinate_types : tuple[str, ...] = self.figure_coord_types + self.df_coord_types + (self.activation_coord_type, )
 
+        accumulated_dfs = []
+        for figure_coords, df in self.results.items() :
+            
+            # Don't want to change original results data, may be reused for other purposes
+            new_df = df.copy()
+            
+            # Adds all the identifiers for the figure directly into the dataframe for identification, no more dict structure
+            for figure_coord_type, figure_coord in list(zip(self.figure_coord_types, figure_coords)) :
+                new_df[figure_coord_type] = figure_coord
+                
+            # Need to know how to represent the data in order or we will get a jumbled mess at the end
+            new_df.reset_index(names = ["position"], drop = False, inplace = True)    
+            all_other_columns = [col for col in new_df.columns if not isinstance(col, tuple)]
+            
+            # This turns the tuple columns into values using the var name "agg-test-type", needed to separate. 
+            new_df_melted = new_df.melt(id_vars = all_other_columns, var_name = "agg-test-type", value_name = "val" )
 
+            # But now need to separate agg and test type since still as tuples; do this by turning to list of tuples of len 2
+            test_kf_reducer_tuples = new_df_melted["agg-test-type"].tolist()
 
+            # Provides the agg-test-type columns
+            new_df_melted[list(self.df_coord_types)] = pd.DataFrame(test_kf_reducer_tuples, index = new_df_melted.index)
+            new_df_melted.drop(columns = ["agg-test-type"] , inplace = True)
+            
+            accumulated_dfs.append(new_df_melted)
+            
+        accumulated_df : pd.DataFrame = pd.concat(accumulated_dfs, axis = 0, ignore_index = True)
+        reordered_columns = list(self.coordinate_types) + ["position", "val"] # Honours the order given in the class
+        
+        # Val should always be the last entry
+        self.df : pd.DataFrame = accumulated_df[reordered_columns]
+        
+
+    def query(self, eval_type : str | None = None, category : str | None = None, measure_type : str | None = None, 
+              reducer : str  | None = None, kf_reducer : str  | None = None, activation : str  | None = None) -> pd.DataFrame :
+        
+        
+        query_requirements = [eval_type, category, measure_type, reducer, kf_reducer, activation]
+        coordinate_valuations = list(zip(list(self.coordinate_types), query_requirements))
+        
+        # Begin with the all-true mask then apply each condition to filter out irrelevant tuples in the search     
+        query_mask = pd.Series(True, index = self.df.index)
+        
+        # Build up each condition, removing all which do not comply to get us our line data
+        for coordinate_type, coordinate in coordinate_valuations :
+            # If user does not specify, just return all possible valuations === no condition, tautological condition
+            if coordinate is None : continue
+            
+            condition = self.df[coordinate_type] == coordinate
+            query_mask = query_mask & condition # All conditions must be met for it to qualify under our query
+                        
+        # Sort by position to make sure the data remains in the correct ordering; integrity. 
+        # Most likely was always in the right order anyway but this guarantees it
+        query_result = self.df[query_mask].sort_values(by = "position", ascending = True)
+  
+        # Want only val, not categories or position
+        return query_result
+        
+    def specific_query(self, eval_type : str, category : str, measure_type : str, 
+                       reducer : str, kf_reducer : str, activation : str, replace_index : bool = True) :
+    
+        query_requirements = [eval_type, category, measure_type, reducer, kf_reducer, activation]
+        
+        if None in query_requirements :
+            raise ValueError(f"NoneType parameter given for specific query {query_requirements}")
+        
+        query_result = self.query(*query_requirements)
+
+        # May not want to keep "position"
+        if replace_index :
+            query_result.index = query_result["position"]
+            query_result.index.name = category[:-1] # Remove the "s", e.g "epochs" -> "epoch", "params" -> "param"
+
+        # Since all coordinates will be identical, no point in keeping the exact coords
+        return query_result[["val"]]

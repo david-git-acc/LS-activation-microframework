@@ -6,6 +6,7 @@ from torch import nn
 # CUSTOM
 from visualisation import plot_activation_tests
 from support.config import df, df_train, df_test, config
+from support.parsing_helpers import safe_dict2params
 from activation_testing import complete_activation_test
 
 # Separate numeric columns for different preprocessing
@@ -18,22 +19,12 @@ label_transforms = ( (nonnumerics, OrdinalEncoder(handle_unknown = "use_encoded_
 
 experiment_params = expConfig(
                         df_train, df_test, 
-                        config["labels"], 
-                        ShortNetwork, 
-                        nn.CrossEntropyLoss(),
+                        network_type = ShortNetwork, 
+                        loss = nn.CrossEntropyLoss(),
                         feature_transforms = feature_transforms,
                         label_transforms = label_transforms,
-                        epochs = config["epochs"],
-                        activations = config["activations"],
-                        activation_names = config["activation_names"],
-                        test_functions = config["test_functions"],
-                        test_function_names = config["test_function_names"],
-                        kfold_aggfuncs = config["kfold_aggfuncs"],
-                        kfold_aggfunc_names = config["kfold_aggfunc_names"],
-                        max_samples = config["max_samples"],
-                        categories = ("grad", "testloss", "testpreds")
+                        **safe_dict2params(config, expConfig)
                     )
 
-result_dfs = complete_activation_test(experiment_params, verbose = True)
-
-plot_activation_tests(result_dfs, experiment_params, verbose = False)
+results = complete_activation_test(experiment_params, verbose = True)
+plot_activation_tests(results, experiment_params, verbose = False)

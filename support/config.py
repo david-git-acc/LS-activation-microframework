@@ -5,9 +5,10 @@ from typing import Any, Callable
 import yaml
 import random
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
 # CUSTOM
-from support.torch_test_metrics import arithmetic_mean, variance, log_average
+from support.torch_reducers import arithmetic_mean, variance, log_average
 
 # INITIALISATION
 
@@ -35,16 +36,15 @@ def update_config(registed_params : dict[str, Callable], config : dict[str, Any]
     config[namestring] = [registed_params[name.lower()] 
                          for name in config[namestring_names]]
     
-# Necessary
-update_config({ 
+
+function_registry : dict[str, Callable] = { 
     "mean" : arithmetic_mean,
     "log_average" : log_average,
-    "variance" : variance
-}, 
-config, "test_functions")
-
-update_config({ 
-    "mean" : arithmetic_mean,
-    "variance" : variance
-}, 
-config, "kfold_aggfuncs")
+    "variance" : variance,
+    "accuracy" : accuracy_score
+}
+    
+# Necessary
+update_config(function_registry, config, "reducers")
+update_config(function_registry, config, "kf_reducers")
+update_config(function_registry, config, "eval_metrics")

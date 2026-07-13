@@ -11,10 +11,10 @@ from rich.progress import Progress
 from support.processing_helpers import (sampling_indices, pd_data_transformer, dfs2train_test, 
                                         get_number_of_features_and_classes)
 from support.config import config
-from support.torch_test_metrics import arithmetic_mean, testloss_dummy
+from support.torch_reducers import arithmetic_mean, last_elem, variance, stdeviation
 from support.parsing_helpers import name2index, safe_asdict
-from dataclass_objects import expConfig, expInput, experimentResult
-from category_functions import category_registry, categoryExperimentLogger
+from dataclass_objects import expConfig, expInput, experimentResult, activationResults
+from category_functions import category_registry, categoryExperimentLogger, post_experiment_test_grad
 from networks import ActivationNetwork
 from activations import LS
 
@@ -49,7 +49,7 @@ def experiment(xpi : expInput) -> experimentResult :
     record_epochs = set(sampling_indices(xpi.epochs, xpi.n_captures))
     
     # Used for data recording
-    logger = categoryExperimentLogger(xpi, categories = "all")
+    logger = categoryExperimentLogger(xpi, categories = xpi.categories)
     
     record_index = 0
     for epoch in range(xpi.epochs) :
@@ -81,7 +81,8 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
                        feature_transforms : tuple[tuple[list[str], Any], ...] = (),
                        label_transforms : tuple[tuple[list[str], Any], ...] = (),
                        dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long), 
-                       epochs : int = 500, batch_size : int = -1, max_samples : int = -1 ) -> experimentResult :
+                       epochs : int = 500, batch_size : int = -1, max_samples : int = -1,
+                       categories : tuple[str, ...] = ("grad",)) -> experimentResult :
     
     """
     Same as experiment() but taken directly from the dataframe to minimise boilerplate code. Also excellent for 
@@ -121,7 +122,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
     Y_train, Y_test = dfs2train_test(df_train_Y, df_test_Y, Y_transformer, dtype = Y_type)
     
     return experiment(expInput(X_train, X_test, Y_train, Y_test, model, target_loss = loss, 
-                      epochs = epochs, batch_size = batch_size, max_samples = max_samples))
+                      epochs = epochs, batch_size = batch_size, max_samples = max_samples, categories = categories))
 
 def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | list[str], 
                 loss : nn.Module,
@@ -129,7 +130,8 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
                 label_transforms : tuple[tuple[list[str], Any], ...] = (),
                 dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long),
                 kfold_k : int = 10, epochs : int = 500, 
-                batch_size : int = -1, max_samples : int = -1) -> experimentResult :
+                batch_size : int = -1, max_samples : int = -1,
+                categories : tuple[str, ...] = ("grad",)) -> experimentResult :
     
     """
     Perform Stratified K-Fold (SKF) cross-validation on a dataframe. Highly compatible with 
@@ -167,7 +169,8 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
                                feature_transforms = feature_transforms, 
                                label_transforms = label_transforms, 
                                dtypes = dtypes, epochs = epochs, 
-                               batch_size = batch_size, max_samples = max_samples, loss = loss) 
+                               batch_size = batch_size, max_samples = max_samples, loss = loss,
+                               categories = categories) 
         
         exp_results.append(fold_result)
 
@@ -175,7 +178,7 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
     return experimentResult(exp_results)
 
 
-def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> dict[tuple[str,str,str], pd.DataFrame] :
+def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> activationResults :
     
     """
     Orchestrator / god function to perform entire experiment, from training to kfold and testing given a set of 
@@ -198,6 +201,8 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
         Each dataframe stores an agg-type test-type combination, e.g "('log_average', 'mean')" as a column name.
     """
     
+    # "all" will have been converted into ("all", ) by expConfing's input validation
+    if exp_params.categories == ("all", ) : exp_params.categories = tuple(category_registry.keys())
     category_params = {cat : category_registry[cat] for cat in exp_params.categories}
     
     n_features, n_classes = get_number_of_features_and_classes(exp_params.df_train, exp_params.labels)
@@ -214,9 +219,9 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
         for activation_index, activation in enumerate( exp_params.activations ) : 
 
             network = exp_params.network_type(activation, n_inputs = n_features, n_outputs = n_classes)
-            activation_name =  exp_params.activation_names[activation_index] 
+            activation_name = exp_params.activation_names[activation_index] 
             
-            net_act_str = f"[N: {network.__class__.__name__}, A: {activation.__class__.__name__}]"  
+            net_act_str = f"[Network: {network.__class__.__name__}, Activation: {activation.__class__.__name__}]"  
             if verbose : progress.console.log(f"Executing configuration: {net_act_str}")
 
             # Pass in params dataclass directly because function signature may become arbitrarily long with more additions
@@ -227,9 +232,9 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
                 if verbose : progress.console.log(f" -> {eval_type.title()}ing on {category} data over {measure_type}")
                 
                 if eval_type == "train" :
-                    aggfuncs, aggfunc_names = exp_params.kfold_aggfuncs, exp_params.kfold_aggfunc_names
+                    aggfuncs, aggfunc_names = exp_params.kf_reducers, exp_params.kf_reducer_names
                 else : # No point aggregating over a single fold if it's test data; 0 variance    
-                    nameof_arithmetic_mean = exp_params.kfold_aggfunc_names[exp_params.kfold_aggfuncs.index(arithmetic_mean)]
+                    nameof_arithmetic_mean = exp_params.kf_reducer_names[exp_params.kf_reducers.index(arithmetic_mean)]
                     aggfuncs, aggfunc_names = ((arithmetic_mean,), [nameof_arithmetic_mean])
                         
                 # Get the correct category params dataclass object, then get the data to evaluate - either train or test
@@ -238,8 +243,8 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
                 # r[eval_type] gets the right object from r ("train" vs "test"), then select the right data 
                 # from the experimentResult r.results, which is a dictionary of categories to data tensors
 
-                results_df = c.tester(data, over = measure_type, test_suite = exp_params.test_functions, 
-                                      kfold_aggfuncs = aggfuncs, kfold_columns = aggfunc_names) 
+                results_df = c.tester(data, over = measure_type, test_suite = exp_params.reducers, 
+                                      kf_reducers = aggfuncs, kf_reducer_names = aggfunc_names) 
                 results_df["activation"] = activation_name # So we can keep track
             
                 total_activation_dfs[(eval_type, category, measure_type)].append(results_df)
@@ -248,10 +253,11 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
     # Only concat at the end for speed
     total_activation_dfs = {df_type : pd.concat(df, axis = 0) for df_type, df in total_activation_dfs.items()}
     
-    return total_activation_dfs
+    # Wrap in the activationResults dataclass for more flexibility later
+    return activationResults(total_activation_dfs)
 
 
-def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> dict[tuple[str, str, str], pd.DataFrame] :
+def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> activationResults :
     
     """
     Perform an alpha sensitivity test on an LS-converted activation function. Note that this implicitly assumes that
@@ -297,5 +303,3 @@ def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> 
                                     activation_names = activation_names)
     
     return complete_activation_test(new_experiment_params, verbose = verbose)
-
-

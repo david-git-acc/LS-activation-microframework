@@ -8,7 +8,7 @@ from typing import Any
 
 # CUSTOM
 from category_functions import is_ordinal
-from dataclass_objects import expVisual, expConfig
+from dataclass_objects import expVisual, expConfig, activationResults
 from support.plotting_helpers import is_empty_axis
 from support.processing_helpers import symlog
 from support.parsing_helpers import create_path
@@ -42,7 +42,7 @@ def post_plotting_axes_ops(ax) -> None :
     if ymin < 0 < ymax : 
         ax.axhline(0, 0, 1, linestyle = "--", color = "red")
     
-def plot_activation(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> None :
+def plot_data(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> None :
     # Can't add type to y or linter cries irrationally
     
     """
@@ -114,22 +114,22 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
     
     plot_type = figure_data["plot_type"]
     
-    # Every test will be of the form (test_type, agg_type) - anything else e.g index is invalid
+    # Every test will be of the form (reducer, kf_reducer) - anything else e.g index is invalid
     all_tests = [col for col in results_df.columns.tolist() if isinstance(col, tuple)]
-    test_types = {test_type for test_type, agg_type in sorted(all_tests)}
+    reducers = {reducer for reducer, kf_reducer in sorted(all_tests)}
     
     # Each test type gets its own axes object. Had to use set to avoid duplicates,
-    # since each test appears len(agg_types) times over all the columns
-    test2ax = dict(zip(test_types, axes))
+    # since each test appears len(kf_reducers) times over all the columns
+    test2ax = dict(zip(reducers, axes))
     activation_groups = results_df.groupby("activation")
     
-    for test_type, agg_type in all_tests :
+    for reducer, kf_reducer in all_tests :
         
-        test_agg_str = f"[Test type: {test_type}, Agg type: {agg_type}]"
+        test_agg_str = f"[Reducer: {reducer}, KFold reducer: {kf_reducer}]"
         if verbose : print(f"Visualising configuration: {test_agg_str}")
         
-        ax = test2ax[test_type]
-        ax_params = xvp.generate_axes_params(test_type, figure_data, nskip = nskip)
+        ax = test2ax[reducer]
+        ax_params = xvp.generate_axes_params(reducer, figure_data, nskip = nskip)
         populate_axes(ax, ax_params)
         
         for activation_name in xvp.experiment.activation_names :
@@ -137,27 +137,27 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
             activation_data = activation_groups.get_group(activation_name)
 
             x = ax_params["xticklabels"]
-            y = activation_data[(test_type, agg_type)]
+            y = activation_data[(reducer, kf_reducer)]
             
-            if is_ordinal(xvp_triple[1]) :
+            if is_ordinal(xvp_triple[1]) : # 2nd element = the category. Some categories ordinal, others not
                 x = x[ax_params["nskip"]: ]
                 y = y[ax_params["nskip"]: ]
                 
-            plot_params = xvp.generate_plot_params(activation_name, agg_type, plot_type)
-            plot_activation(x, y, ax, plot_params)
+            plot_params = xvp.generate_plot_params(activation_name, kf_reducer, plot_type)
+            plot_data(x, y, ax, plot_params)
         
-    for test_type in test_types : 
-        post_plotting_axes_ops(test2ax[test_type])
+    for reducer in reducers : 
+        post_plotting_axes_ops(test2ax[reducer])
         
     savename = f"{xvp.save_folder}/figures/{figure_data['savename']}.pdf"
     
     fig.suptitle(figure_data["title"], fontsize = "xx-large")
     fig.tight_layout()
-    fig.savefig(savename)
+    fig.savefig(savename) # do NOT use plt.savefig, it will cause a memory leak due to bug in pyplot
     plt.close(fig)
     
     
-def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp : expConfig,
+def plot_activation_tests(act_results : activationResults, xp : expConfig,
                           verbose : bool = True) -> None :
 
     """
@@ -182,12 +182,12 @@ def plot_activation_tests(results : dict[tuple[str, str, str], pd.DataFrame], xp
     create_path(f"{xvp.save_folder}/csvs")
     
     with Progress() as progress : 
-        work = progress.add_task("Visualisation progress:", total = len(results) )
+        work = progress.add_task("Visualisation progress:", total = len(act_results.results) )
         
-        for eval_type, category, measure_type in results :
+        for eval_type, category, measure_type in act_results.results :
             progress.console.log(f" -> Visualising {eval_type} results on {category} data measured over {measure_type}.")
             
-            total_activation_df = results[(eval_type, category, measure_type)]
+            total_activation_df = act_results.results[(eval_type, category, measure_type)]
             plot_actexp_figure_data(xvp, total_activation_df, (eval_type, category, measure_type), 
                                     verbose = verbose)
             

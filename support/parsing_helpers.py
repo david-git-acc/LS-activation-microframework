@@ -109,7 +109,7 @@ def create_path(pathname : str) -> None :
     path.mkdir(parents = True, exist_ok = True)
     
 
-def safe_asdict(config_dataclass, func) :
+def safe_asdict(config_dataclass, func : Callable) :
     """
     Returns a dictionary of parameters that the target function 
     actually accepts, filtered from the dataclass.
@@ -121,3 +121,8 @@ def safe_asdict(config_dataclass, func) :
     return {k: v for k, v in params.items() if k in sig.parameters}
 
 
+def safe_dict2params(params : dict[str, Any], func : Callable) -> dict[str, Any] :
+    
+    sig = inspect.signature(func)
+    
+    return {k : v for k, v in params.items() if k in set(sig.parameters)}

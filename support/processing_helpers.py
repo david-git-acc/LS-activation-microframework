@@ -172,3 +172,31 @@ def sampling_indices(n : int, max_samples : int) -> list[int] :
     max_samples = min(max_samples, n)
     
     return np.round(np.linspace(0, n - 1, max_samples)).astype(int).tolist()
+
+
+def dfs_settings2tensors(df_train : pd.DataFrame, df_test : pd.DataFrame, 
+      feature_transforms : tuple[tuple[list[str], Callable], ...], label_transforms : tuple[tuple[list[str], Callable], ...],
+      labels : str | list[str], dtypes : tuple[torch.dtype, torch.dtype]) -> tuple[torch.Tensor, ...] :
+
+    """Function to convert dataframes and metadata into the correct train and test, feature and label tensors.
+        MUST be deterministic. Do not use nondeterministic transformers to prevent label mismatch in metrics checking.
+
+    Returns:
+        4-tuple of tensors.
+    """
+    
+    X_transformer = pd_data_transformer(feature_transforms)
+    Y_transformer = pd_data_transformer(label_transforms)  
+    
+    df_train_X = df_train.drop(columns = labels)
+    df_test_X = df_test.drop(columns = labels)
+    df_train_Y = df_train[labels]
+    df_test_Y = df_test[labels]
+    
+    X_type, Y_type = dtypes
+    
+    # Learn the transform on the training data and apply to the test data
+    X_train, X_test = dfs2train_test(df_train_X, df_test_X, X_transformer, dtype = X_type)
+    Y_train, Y_test = dfs2train_test(df_train_Y, df_test_Y, Y_transformer, dtype = Y_type)
+    
+    return X_train, X_test, Y_train, Y_test

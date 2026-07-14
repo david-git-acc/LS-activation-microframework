@@ -68,9 +68,9 @@ class LS(nn.Module) :
     
 
 # Necessary
-registered_activations = { 
+activation_registry = { 
     "iplo" : IPLo(),
     "tanh" : nn.Tanh(),
     "relu" : nn.ReLU()
 }
-update_config(registered_activations, config, "activations")
+update_config(activation_registry, config, "activations")

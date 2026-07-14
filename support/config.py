@@ -5,7 +5,7 @@ from typing import Any, Callable
 import yaml
 import random
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, matthews_corrcoef, balanced_accuracy_score
 
 # CUSTOM
 from support.torch_reducers import arithmetic_mean, variance, log_average
@@ -41,7 +41,10 @@ function_registry : dict[str, Callable] = {
     "mean" : arithmetic_mean,
     "log_average" : log_average,
     "variance" : variance,
-    "accuracy" : accuracy_score
+    "accuracy" : accuracy_score, 
+    "balanced_accuracy" : balanced_accuracy_score,
+    "mcc" : matthews_corrcoef,
+    
 }
     
 # Necessary

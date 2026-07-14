@@ -8,13 +8,13 @@ from dataclasses import replace
 from rich.progress import Progress
 
 # CUSTOM
-from support.processing_helpers import (sampling_indices, pd_data_transformer, dfs2train_test, 
+from support.processing_helpers import (sampling_indices, pd_data_transformer, dfs_settings2tensors, 
                                         get_number_of_features_and_classes)
 from support.config import config
 from support.torch_reducers import arithmetic_mean, last_elem, variance, stdeviation
 from support.parsing_helpers import name2index, safe_asdict
-from dataclass_objects import expConfig, expInput, experimentResult, activationResults
-from category_functions import category_registry, categoryExperimentLogger, post_experiment_test_grad
+from dataclass_objects import expConfig, expInput, experimentResult, activationResults, testInput
+from category_functions import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
 from activations import LS
 
@@ -107,19 +107,9 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
         experimentResult: stores all the captured data for future use
     """
     
-    X_transformer = pd_data_transformer(feature_transforms)
-    Y_transformer = pd_data_transformer(label_transforms)  
-    
-    df_train_X = df_train.drop(columns = labels)
-    df_test_X = df_test.drop(columns = labels)
-    df_train_Y = df_train[labels]
-    df_test_Y = df_test[labels]
-    
-    X_type, Y_type = dtypes
-    
-    # Learn the transform on the training data and apply to the test data
-    X_train, X_test = dfs2train_test(df_train_X, df_test_X, X_transformer, dtype = X_type)
-    Y_train, Y_test = dfs2train_test(df_train_Y, df_test_Y, Y_transformer, dtype = Y_type)
+    X_train, X_test, Y_train, Y_test = dfs_settings2tensors(df_train, df_test, 
+                                                            feature_transforms, label_transforms, 
+                                                            labels, dtypes)
     
     return experiment(expInput(X_train, X_test, Y_train, Y_test, model, target_loss = loss, 
                       epochs = epochs, batch_size = batch_size, max_samples = max_samples, categories = categories))
@@ -163,9 +153,14 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
     X_train = df.drop(columns = labels)
     Y_train = df[labels] 
     
+    # Store the train and test data indices for use to calculate metrics later
+    kfold_data = []
+
     for train_index, test_index in skf.split(X_train, Y_train) :
         
-        fold_result = experiment_from_df(df.iloc[train_index], df.iloc[test_index], model, labels, 
+        train_data : pd.DataFrame = df.iloc[train_index]
+        test_data : pd.DataFrame = df.iloc[test_index]
+        fold_result = experiment_from_df(train_data, test_data, model, labels, 
                                feature_transforms = feature_transforms, 
                                label_transforms = label_transforms, 
                                dtypes = dtypes, epochs = epochs, 
@@ -173,9 +168,42 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
                                categories = categories) 
         
         exp_results.append(fold_result)
+        kfold_data.append((train_data, test_data))
 
     # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
-    return experimentResult(exp_results)
+    return experimentResult(exp_results, metadata = {"kfold_data" : kfold_data})
+
+
+def evaluate_activation_results(exp_params : expConfig, exp_result : experimentResult, tester : Callable,
+                            typeof_result : tuple[str, ...]) -> pd.DataFrame : 
+    
+    # Unpack the metadata components from the type of result we have 
+    eval_type, category, measure_type = typeof_result
+    
+    # Get the correct category params dataclass object, then get the data to evaluate - either train or test
+    data = exp_result.results[category]
+    # r[eval_type] gets the right object from r ("train" vs "test"), then select the right data 
+    # from the experimentResult r.results, which is a dictionary of categories to data tensors 
+    
+    expected_ndims = len(data.shape)
+    if eval_type == "train" :
+        aggfuncs, aggfunc_names = exp_params.kf_reducers, exp_params.kf_reducer_names
+        expected_ndims -= 1 # We already have kfold dimension so subtract 1 dim to compensate
+    else : # No point aggregating over a single fold if it's test data; 0 variance    
+        nameof_arithmetic_mean = exp_params.kf_reducer_names[exp_params.kf_reducers.index(arithmetic_mean)]
+        aggfuncs, aggfunc_names = ((arithmetic_mean,), [nameof_arithmetic_mean])
+
+    # Encapsulate into test input dataclass to avoid path dependence; store misc. vitals in metadata
+    test_input = testInput(data, 
+                            exp_params.reducers, exp_params.reducer_names, 
+                            aggfuncs, aggfunc_names, 
+                            measure_type = measure_type, 
+                            expected_ndims = expected_ndims, 
+                            metadata = exp_result.metadata,
+                            xpc = exp_params)
+
+    results_df = tester(test_input) 
+    return results_df
 
 
 def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> activationResults :
@@ -202,8 +230,8 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
     """
     
     # "all" will have been converted into ("all", ) by expConfing's input validation
-    if exp_params.categories == ("all", ) : exp_params.categories = tuple(category_registry.keys())
-    category_params = {cat : category_registry[cat] for cat in exp_params.categories}
+    categories = tuple(category_registry.keys()) if exp_params.categories == ("all", ) else exp_params.categories
+    category_params = {cat : category_registry[cat] for cat in categories}
     
     n_features, n_classes = get_number_of_features_and_classes(exp_params.df_train, exp_params.labels)
 
@@ -231,22 +259,12 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
             for eval_type, category, measure_type in total_activation_dfs:
                 if verbose : progress.console.log(f" -> {eval_type.title()}ing on {category} data over {measure_type}")
                 
-                if eval_type == "train" :
-                    aggfuncs, aggfunc_names = exp_params.kf_reducers, exp_params.kf_reducer_names
-                else : # No point aggregating over a single fold if it's test data; 0 variance    
-                    nameof_arithmetic_mean = exp_params.kf_reducer_names[exp_params.kf_reducers.index(arithmetic_mean)]
-                    aggfuncs, aggfunc_names = ((arithmetic_mean,), [nameof_arithmetic_mean])
-                        
-                # Get the correct category params dataclass object, then get the data to evaluate - either train or test
-                c = category_params[category]
-                data = r[eval_type].results[category]
-                # r[eval_type] gets the right object from r ("train" vs "test"), then select the right data 
-                # from the experimentResult r.results, which is a dictionary of categories to data tensors
-
-                results_df = c.tester(data, over = measure_type, test_suite = exp_params.reducers, 
-                                      kf_reducers = aggfuncs, kf_reducer_names = aggfunc_names) 
+                results_df = evaluate_activation_results(exp_params = exp_params, 
+                                                     exp_result = r[eval_type], 
+                                                     tester = category_params[category].tester, 
+                                                     typeof_result = (eval_type, category, measure_type))
                 results_df["activation"] = activation_name # So we can keep track
-            
+
                 total_activation_dfs[(eval_type, category, measure_type)].append(results_df)
                 progress.advance(work, 1)
 

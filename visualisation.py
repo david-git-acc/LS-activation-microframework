@@ -72,7 +72,7 @@ def plot_data(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> None :
                     markersize = plot_params["markersize"] )
         case "kde" : 
             sns.kdeplot(x = y, color = plot_params["colour"], label = plot_params["label"], 
-                        linestyle = plot_params["linestyle"], ax = ax, alpha = 0.3,fill = True, common_norm = False)
+                        linestyle = plot_params["linestyle"], ax = ax, alpha = 0.3, fill = True, common_norm = False)
         case "histplot" : 
             sns.histplot(x = y, color = plot_params["colour"], linestyle = plot_params["linestyle"], 
                         label = plot_params["label"], ax = ax, fill = True, alpha = 0.3, common_norm = False, stat = "probability")

@@ -355,23 +355,28 @@ class expInput() :
     
     
 @dataclass
-class monitorParams() :
+class testInput() :
     X : torch.Tensor
     reducers : tuple[Callable, ...]
     reducer_names : str | list[str]
     kf_reducers :  tuple[Callable, ...]
     kf_reducer_names : str | list[str]
+    expected_ndims : int = 2
+    measure_type : str = "epochs"
+    metadata : dict[str, Any] = field(default_factory = dict, init = True)
+    xpc : expConfig | None = None
     
-    def validate(self, expected_ndims : int = 2) :
-        
+    def __post_init__(self) :
+      
+        if not isinstance(self.kf_reducers, tuple) : self.kf_reducers = ( self.kf_reducers, )  
         if not isinstance(self.reducer_names, list) : self.reducer_names = [self.reducer_names]
-        if not isinstance(self.kf_reducers, tuple) : self.kf_reducers = ( self.kf_reducers, )
         if not isinstance(self.kf_reducer_names, list) : self.kf_reducer_names = [self.kf_reducer_names]
         
-        is_test_data = len(self.X.size()) == expected_ndims
+        is_test_data = len(self.X.size()) == self.expected_ndims
         
         # If it's test data then there are no folds, so to avoid having to duplicate this function we add a dummy one
-        if is_test_data : self.X = self.X[..., None]
+        if is_test_data :
+            self.X = self.X[..., None]
         
         self.reducer_names = validate_activation_df_column_names(self.reducers, self.reducer_names)
         self.kf_reducer_names = validate_activation_df_column_names(self.kf_reducers, self.kf_reducer_names)
@@ -389,8 +394,8 @@ class experimentResult() :
     """
     _results : dict[str, torch.Tensor] | list[experimentResult] = field(default_factory = dict)
     results : dict[str, torch.Tensor] = field(default_factory = dict, init = False) # Should NOT be writeable to
-    is_aggregated : bool = False
-    
+    metadata : dict[str, Any] = field(default_factory = dict, init = True)
+
     def __post_init__(self) :
 
         # Handle k-fold assumption
@@ -413,8 +418,6 @@ class experimentResult() :
                             for category, data in dict_results.items()}
             self.results = dict_results
             
-            # Flag to check if it's kfold or not, for further debugging / logging
-            self.is_aggregated = True
         else :
             self.results = self._results
 
@@ -444,7 +447,7 @@ class activationResults() :
         self.df_coord_types : tuple[str, ...] = ("reducer", "kf_reducer")
         self.activation_coord_type : str = "activation"
         self.coordinate_types : tuple[str, ...] = self.figure_coord_types + self.df_coord_types + (self.activation_coord_type, )
-
+    
         accumulated_dfs = []
         for figure_coords, df in self.results.items() :
             

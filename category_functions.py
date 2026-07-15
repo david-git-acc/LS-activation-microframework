@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, replace
-from typing import Callable, Any
+from typing import Callable
 from abc import ABC, abstractmethod
 import torch
 import pandas as pd
@@ -11,7 +11,7 @@ from dataclass_objects import expInput, experimentResult, testInput
 from support.config import config
 from support.processing_helpers import params2grad_vector, dfs_settings2tensors
 from support.parsing_helpers import name2index, safe_asdict
-from support.torch_reducers import arithmetic_mean, donothing_dummy
+from support.torch_reducers import donothing_dummy
 
 # HOW TO ADD NEW CATEGORIES:
 # To add a new category, define the tracker (experimentTracker), the tester (post_experiment_test_(categoryname)),
@@ -124,16 +124,10 @@ def post_experiment_test_grad(ti : testInput) -> pd.DataFrame :
     an aggregation function (typically mean) and returns results as a Pandas dataframe.
     
     Params:
-        gms : list of gradient matrices over folds (3D: (epochs, parameters, folds) - although it need not be this shape)
-        over: dimension to check over. Can be set to a different axis manually.
-        test_suite: list of functions to test on.
-        test_columns: names of each test. If no value given, uses the function names.
-        kf_reducers: the aggregation functions to collapse a dimension over. Always becomes mean() if number of folds = 1.
-        expected_ndims : number of dimensions that the data is originally meant to be in (before folds). Used for validation.
+        ti: testInput dataclass. See the type annotation for more information on required parameters for it. 
         
     NOTE: This function is the main function for post experiment testing; testloss and testpreds rely on this one. Also,
     remember that the last dimension must always be the kfold dimension, or bugs will occur - silently or not.
-
 
     Returns:
         result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.
@@ -262,9 +256,9 @@ def post_experiment_test_testpreds(ti : testInput) -> pd.DataFrame :
 
 class metricsExperimentTracker(categoryExperimentTracker) :
     
-    """categoryExperimentTracker implementation for test prediction data. Stores epochs and test samples.
-    Note that NaN values will be used as padding whenever stratified K-fold differs in size. As long as using
-    a NaN-aware metric e.g those found in helpers (arithmetic_mean, variance, log_average), this will not impact the results.
+    """metricsExperimentTracker implementation for test prediction data. Stores epochs and test samples.
+    This implementation is currently identical to testpredsExperimentTracker except the _category = "metrics".
+    However, it is kept separately to avoid unnecessary dependency and allow for future isolation of any changes.
     """
     
     def __init__(self, xpi : expInput) :
@@ -281,6 +275,17 @@ class metricsExperimentTracker(categoryExperimentTracker) :
 
 def post_experiment_test_metrics(ti : testInput) -> pd.DataFrame :
     
+    """Post-experiment test function for metrics. 
+    
+    Params:
+        testInput dataclass, containing the dataframes, reference to the experiment configuration (may be None),
+        and all necessary parameters. See the TestInput type annotation for more details.
+    
+    Returns:
+        DataFrame: DataFrame containing all (metric, kf_reducer) combinations and the corresponding output data.
+    
+    """
+    
     # We need an experiment reference so we can identify which data to compare to
     if ti.xpc is None :
         raise ValueError("Metrics category requires a parent expConfig reference (xpc) in testInput dataclass")
@@ -291,13 +296,12 @@ def post_experiment_test_metrics(ti : testInput) -> pd.DataFrame :
                                               dtypes = (ti.xpc.features_dtype, ti.xpc.labels_dtype))] 
     else :
         # We have to use the train and test data we got, same as before.
-        processed_kf_data = [dfs_settings2tensors(train_df, test_df, 
-                                              ti.xpc.feature_transforms, ti.xpc.label_transforms,
-                                              ti.xpc.labels, (ti.xpc.features_dtype, ti.xpc.labels_dtype)) 
-                         for train_df, test_df in kfold_data]
+        processed_kf_data = [dfs_settings2tensors(train_df, test_df, ti.xpc.feature_transforms, ti.xpc.label_transforms,
+                                                  ti.xpc.labels, (ti.xpc.features_dtype, ti.xpc.labels_dtype)) 
+                                                  for train_df, test_df in kfold_data]
     
     # Ground truths are Y test, which will be the 4th and final element of the processing
-    ground_truths = [Y_test for X_train, X_test, Y_train, Y_test in processed_kf_data ]
+    ground_truths = [Y_test.numpy() for X_train, X_test, Y_train, Y_test in processed_kf_data ]
     
     nepochs = ti.X.shape[name2index("epochs")]
     nfolds = ti.X.shape[-1]

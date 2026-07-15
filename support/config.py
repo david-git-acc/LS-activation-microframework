@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, matthews_corrcoef, balanced_accuracy_score
 
 # CUSTOM
-from support.torch_reducers import arithmetic_mean, variance, log_average
+from support.torch_reducers import arithmetic_mean, variance, log_average, stdeviation
 
 # INITIALISATION
 
@@ -44,6 +44,7 @@ function_registry : dict[str, Callable] = {
     "accuracy" : accuracy_score, 
     "balanced_accuracy" : balanced_accuracy_score,
     "mcc" : matthews_corrcoef,
+    "stdeviation" : stdeviation,
     
 }
     

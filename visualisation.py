@@ -143,7 +143,7 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
                 x = x[ax_params["nskip"]: ]
                 y = y[ax_params["nskip"]: ]
                 
-            plot_params = xvp.generate_plot_params(activation_name, kf_reducer, plot_type)
+            plot_params = xvp.generate_plot_params(activation_name, xvp_triple[1], kf_reducer, plot_type)
             plot_data(x, y, ax, plot_params)
         
     for reducer in reducers : 

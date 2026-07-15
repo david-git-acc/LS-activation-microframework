@@ -30,16 +30,7 @@ def experiment(xpi : expInput) -> experimentResult :
     
     Params:
         xpi: the main input params class for this function, containing all of the attributes below.
-        X_train_tensor : n x d training feature matrix.
-        X_test_tensor : n_test x d testing feature matrix.
-        Y_train_tensor : 1 x n or n x 1 training label matrix.
-        Y_test_tensor : 1 x n_test or n_test x 1 testing label matrix.
-        anet_model : the model to perform the experiment with.
-        target_loss : the loss function to evaluate the model.
-        epochs : number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
-        lr : constant learning rate value. In theory, you could pass in a variable learning rate here (not recommended).
-        batch_size : number of training examples to use per gradient descent step. Defaults to -1 (all examples per step).
-        max_samples : maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all). 
+        
         
     Returns:
         experimentResult : stores all the captured data for future use.

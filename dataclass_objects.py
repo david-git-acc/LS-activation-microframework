@@ -168,12 +168,14 @@ class expConfig() :
             The visual parameters dataclass, with its associated attributes and methods.
         """
         
+        possible_linestyles = ["-", "--", ] +  list(mlines.lineStyles.keys())
+        possible_markers = list(mlines.lineMarkers.keys())
+        
         main_params = {
             "save_folder" : self.savename(),
-            "activation_colours" : dict(zip(self.activation_names, 
-                                            get_n_colours(len(self.activations)) )),
-            "kf_aggfunc_linestyles" : dict(zip(self.kf_reducer_names, 
-                                               list(mlines.lineStyles.keys())[:len(self.kf_reducers)])),
+            "activation_colours" : dict(zip(self.activation_names, get_n_colours(len(self.activations)) )),
+            "category_linestyles" :  dict(zip(list(self.categories), possible_linestyles[:len(self.categories)])),
+            "kf_aggfunc_markerstyles" : dict(zip(self.kf_reducer_names, possible_markers[:len(self.kf_reducers)])),
             "experiment" : self,
         }
         
@@ -198,7 +200,8 @@ class expVisual() :
     
     save_folder : str
     activation_colours : dict[str, Any]
-    kf_aggfunc_linestyles : dict[str, str]
+    category_linestyles : dict[str, str]
+    kf_aggfunc_markerstyles : dict[str, str]
     experiment : expConfig
     
     def generate_figure_params(self, eval_type : str, category : str, measure_type : str,
@@ -284,7 +287,7 @@ class expVisual() :
     
         return ax_params
 
-    def generate_plot_params(self, activation_name : str, kf_reducer : str, plot_type : str) :
+    def generate_plot_params(self, activation_name : str, category : str, kf_reducer : str, plot_type : str) :
         
         """
         Generates parameters for the given plot object for an axes object (axes itself not required).
@@ -304,15 +307,33 @@ class expVisual() :
             "plot_type" : plot_type,
             "label" : f"fold-{kf_reducer}({activation_name})",
             "colour" : self.activation_colours[activation_name],
-            "linestyle" : self.kf_aggfunc_linestyles[kf_reducer],
-            "markersize" : 4.0,
-            "marker" : "^"
+            "linestyle" : self.category_linestyles[category],
+            "marker" : self.kf_aggfunc_markerstyles[kf_reducer],
+            "markersize" : 5.0,
         }
         
         return plot_params
     
 @dataclass
 class expInput() :
+    
+    """Input dataclass to be passed into experiment() or experiment_from_df() function. Used for validation, re-use and 
+    to avoid congested function signatures,
+    
+    Params:
+        X_train_tensor: n x d training feature matrix.
+        X_test_tensor: n_test x d testing feature matrix.
+        Y_train_tensor: 1 x n or n x 1 training label matrix.
+        Y_test_tensor: 1 x n_test or n_test x 1 testing label matrix.
+        anet_model: the model to perform the experiment with.
+        target_loss: the loss function to evaluate the model.
+        epochs: number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
+        lr: constant learning rate value. In theory, you could pass in a variable learning rate here (not recommended).
+        batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all examples per step).
+        max_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all).
+        categories: tuple of all category data that the experiment should track throughout the experiment. Defaults to grad.
+    """
+    
     X_train_tensor : torch.Tensor
     X_test_tensor : torch.Tensor
     Y_train_tensor : torch.Tensor
@@ -338,12 +359,10 @@ class expInput() :
         self.optim = self.optim_type(self.anet_model.parameters(), lr = self.lr)
         self.saved_params : dict[str, Any] = {}
         
-    
     def save_state(self) -> None :
         self.saved_params["anet_model"] = { param : value.clone() 
                                            for param, value in self.anet_model.state_dict().items() }
         self.saved_params["optim"] = copy.deepcopy(self.optim.state_dict())
-        
     
     def reload_state(self) -> None :
         self.anet_model.load_state_dict(self.saved_params["anet_model"])
@@ -356,6 +375,23 @@ class expInput() :
     
 @dataclass
 class testInput() :
+    """
+    Dataclass to store inputs for post-experiment-test functions (e.g post_experiment_test_grad) for input validation
+    and easy use.
+    
+    Params:
+        X: Torch tensor data to be tested on. 
+        reducers: list of functions to test on, e.g mean, variance, log_avg.
+        reducer_names: names of each test. If no value given, uses the function names.
+        kf_reducers: the aggregation functions to collapse a dimension over. Always becomes mean() if number of folds = 1.
+        kf_reducer_names: names of aggregation functions.
+        expected_ndims : number of dimensions that the data is originally meant to be in (before folds). Used for validation.
+        measure_type: dimension to check over. Can be set to a different axis manually.
+        metadata: dictionary containing any relevant data to be collected for future use without adding to the code.
+        xpc: reference to the parent expConfig object. Can be None for most tasks, but for others must be set.
+    
+    """
+    
     X : torch.Tensor
     reducers : tuple[Callable, ...]
     reducer_names : str | list[str]
@@ -440,6 +476,23 @@ class experimentResult() :
 
 @dataclass
 class activationResults() :
+    
+    """Results dataclass for a complete_activation_test(), or related function. 
+
+    Params:
+        results: dictionary of triples (eval_type, category, measure_type) which uniquely define a figure key, with the 
+        corresponding DataFrame as its value object.
+        
+        df: implicit attribute calculated during instantiation from results. Represents all data using a 7-coordinate system:
+            1. The figure key identifiers (eval_type, category, measure_type)
+            2. The axes identifier (reducer)
+            3. The specific plot identifier (activation and kf_reducer)
+            4. Datapoint ID (position)
+        
+        All 4 coordinates combined represent exactly 1 datapoint in a given axes object belonging to a figure.
+
+    """
+    
     results : dict[tuple[str, str, str], pd.DataFrame]
     
     def __post_init__(self) :
@@ -484,6 +537,18 @@ class activationResults() :
     def query(self, eval_type : str | None = None, category : str | None = None, measure_type : str | None = None, 
               reducer : str  | None = None, kf_reducer : str  | None = None, activation : str  | None = None) -> pd.DataFrame :
         
+        """Given all 6 possible coordinate types (excluding "position"), filter the results dataframe for all data that 
+        satisfies the criteria and output as a new DataFrame object. Not to be confused with results.df.query().
+        
+        Leaving any coordinate type as None will return all existing valuations as row elements.
+        
+        Always outputs a DataFrame, not a Series. Will always be 7 columns, one for each coordinate, even if all columns
+        specified. If this behaviour is not desired, consider specific_query().
+        
+
+        Returns:
+            DataFrame: the desired DataFrame object containing all results after projection.
+        """
         
         query_requirements = [eval_type, category, measure_type, reducer, kf_reducer, activation]
         coordinate_valuations = list(zip(list(self.coordinate_types), query_requirements))
@@ -507,7 +572,23 @@ class activationResults() :
         return query_result
         
     def specific_query(self, eval_type : str, category : str, measure_type : str, 
-                       reducer : str, kf_reducer : str, activation : str, replace_index : bool = True) :
+                       reducer : str, kf_reducer : str, activation : str, replace_index : bool = True) -> pd.DataFrame :
+    
+        """Same as ActivationResults.query(), but returns a single-column Pandas DataFrame. 
+        Does not accept NoneType coordinate arguments unlike query(). Unlike query(), will not
+        retain other columns in the output DataFrame. 
+            
+        Params:
+            *coordinates: the 6-coordinates to specify. Does not accept "position" as an argument.
+            replace_index: whether to keep the "position" index of the output DataFrame intact or not.
+            If not, replaces it with the category type.
+        
+        Returns:
+            DataFrame: single-column DataFrame containing value and position. Note that with all 6
+            parameters specified, this DataFrame corresponds exactly to a given single-plot on an axes object
+            from visualisation.py. 
+            
+        """    
     
         query_requirements = [eval_type, category, measure_type, reducer, kf_reducer, activation]
         

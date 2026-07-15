@@ -1,5 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as plt
+import pandas as pd
 
 def get_n_colours(n : int, cmap : str = "viridis" ) -> list :
     
@@ -31,3 +32,14 @@ def generate_plot_title(category : str, kfold_k : int = 0) -> str :
 def is_empty_axis(ax) -> bool :
     
     return not (ax.lines or ax.collections or ax.patches)
+
+def df2csv(df : pd.DataFrame, filename : str) -> None :
+    
+    original_view = df.columns.copy()
+    
+    # Save as multiindex so pd won't register tuple column names as simple strings, which would destroy information
+    df.columns = pd.MultiIndex.from_tuples([col if isinstance(col, tuple) else (col, ) for col in df.columns])
+    df.to_csv(filename)
+    
+    # Prevent side effects
+    df.columns = original_view

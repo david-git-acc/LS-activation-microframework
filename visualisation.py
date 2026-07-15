@@ -8,8 +8,9 @@ from typing import Any
 
 # CUSTOM
 from categories.registry import is_ordinal
-from dataclass_objects import expVisual, expConfig, activationResults
-from support.plotting_helpers import is_empty_axis
+from dataclass_objects.config_objects import expVisual, expConfig
+from dataclass_objects.result_objects import activationResults
+from support.plotting_helpers import is_empty_axis, df2csv
 from support.processing_helpers import symlog
 from support.parsing_helpers import create_path
 
@@ -104,7 +105,7 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
     
     # Delegate main work to dataclass to avoid unnecessary code bloat here
     figure_data = xvp.generate_figure_params(*xvp_triple)
-    if save2csv : results_df.to_csv(f"{xvp.save_folder}/csvs/{figure_data['savename']}.csv")
+    if save2csv : df2csv(results_df, f"{xvp.save_folder}/csvs/{figure_data['savename']}.csv")
     
     # len(all_tests) should always be <= nrows * ncols by way of construction
     fig, axes = plt.subplots(
@@ -124,6 +125,8 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
     # Each test type gets its own axes object. Had to use set to avoid duplicates,
     # since each test appears len(kf_reducers) times over all the columns
     test2ax = dict(zip(reducers, axes))
+    # print(results_df.head())
+    # assert 0
     activation_groups = results_df.groupby("activation")
     
     for reducer, kf_reducer in all_tests :
@@ -147,10 +150,8 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
                 y = y[ax_params["nskip"]: ]
                 
             plot_params = xvp.generate_plot_params(activation_name, category, kf_reducer, plot_type)
-            
             # Must not apply symlog on metrics since metrics naturally enforce bounding, and could distort results
-            apply_symlog = False if category == "metrics" else True
-            plot_data(x, y, ax, plot_params, apply_symlog = apply_symlog)
+            plot_data(x, y, ax, plot_params, apply_symlog = False if category == "metrics" else True)
         
     for reducer in reducers : 
         post_plotting_axes_ops(test2ax[reducer])

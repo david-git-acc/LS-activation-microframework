@@ -12,22 +12,28 @@ class ActivationNetwork(ABC, nn.Module) :
         self.activation : nn.Module = activation
         self.activation_outs : list[torch.Tensor] = []
         self.activation_grads : list[torch.Tensor] = []
+        self._structure : nn.Sequential | None = None
 
     @property
     @abstractmethod    
     def structure(self) -> nn.Sequential :
-        pass
+        error_msg = "No sequential structure defined for ActivationNetwork inheriting subclass"
+        assert isinstance(self._structure, nn.Sequential), error_msg 
+        
+        return self._structure
     
     def clear_activation_data(self) -> None :
         self.activation_grads = []
         self.activation_outs = []
     
     def create_activation_hook(self, module, inp, out) -> None :
-        self.activation_outs.append(out[0].detach().cpu())      
+        if self.training :
+            self.activation_outs.append(out[0].detach().cpu())      
     
     def create_activation_grad_hook(self, module, grad_in, grad_out) -> None :
         # Denied from using type hints due to unreasonable type structure - torch hooks really are a mess
-        self.activation_grads.append(grad_out[0].detach().cpu())
+        if self.training :
+            self.activation_grads.append(grad_out[0].detach().cpu())
 
     def create_all_activation_hooks(self) -> None :
         for layer in self.structure :
@@ -52,10 +58,11 @@ class ActivationNetwork(ABC, nn.Module) :
         
         return len(self.layer_widths())
         
-    
     @abstractmethod
     def forward(self, X) :
-        self.clear_activation_data()
+        if self.training :
+            self.clear_activation_data()
+            
         evaluated = self.structure(X)
         return evaluated
 
@@ -76,10 +83,10 @@ class ShortNetwork(ActivationNetwork) :
         )
     
         self.create_all_activation_hooks() 
-    
+
     @property
-    def structure(self) -> nn.Sequential:
-        return self._structure
+    def structure(self) -> nn.Sequential : 
+        return super().structure
 
     def forward(self, X) :
         return super().forward(X)

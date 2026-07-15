@@ -1,6 +1,6 @@
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from networks import ShortNetwork
-from dataclass_objects import expConfig
+from dataclass_objects.config_objects import expConfig
 from torch import nn
 
 # CUSTOM

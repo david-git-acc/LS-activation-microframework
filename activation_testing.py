@@ -13,7 +13,9 @@ from support.processing_helpers import (sampling_indices, pd_data_transformer, d
 from support.config import config
 from support.torch_reducers import arithmetic_mean, last_elem, variance, stdeviation
 from support.parsing_helpers import name2index, safe_asdict
-from dataclass_objects import expConfig, expInput, experimentResult, activationResults, testInput
+from dataclass_objects.config_objects import expConfig
+from dataclass_objects.input_objects import expInput, testInput
+from dataclass_objects.result_objects import experimentResult, activationResults
 from categories.registry import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
 from activations import LS

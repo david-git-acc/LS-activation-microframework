@@ -1,19 +1,32 @@
 from __future__ import annotations
-from dataclasses import dataclass, replace
-from typing import Callable
-from abc import ABC, abstractmethod
 import torch
 import pandas as pd
 import numpy as np 
 
 ### CUSTOM
-from dataclass_objects import expInput, experimentResult, testInput
+from dataclass_objects.input_objects import expInput, testInput
 from support.config import config
-from support.processing_helpers import params2grad_vector, dfs_settings2tensors
-from support.parsing_helpers import name2index, safe_asdict
-from support.torch_reducers import donothing_dummy
+from support.processing_helpers import params2grad_vector
+from support.parsing_helpers import name2index
 from categories.base_definitions import categoryExperimentTracker
 
+class gradExperimentTracker(categoryExperimentTracker) :
+    
+    """categoryExperimentTracker implementation for gradient data. Stores epochs and parameters by default.
+    """
+    
+    def __init__(self, xpi : expInput) :
+        super().__init__(xpi)
+        self._category = "grad"
+        nabla_shape = params2grad_vector(self.xpi.anet_model.parameters()).size()
+        self._data = torch.full(size = (xpi.n_captures, *nabla_shape), fill_value = torch.nan)
+    
+    def track(self) -> torch.Tensor :
+        return params2grad_vector(self.xpi.anet_model.parameters())
+    
+    def record(self, record_index : int = 0) -> None :
+        self._data[record_index, :] = self.track()
+        
 
 # This is for grad, but it generalises well, so you can use this as a base function to define post_experiment_test on
 def post_experiment_test_grad(ti : testInput) -> pd.DataFrame :
@@ -66,20 +79,3 @@ def post_experiment_test_grad(ti : testInput) -> pd.DataFrame :
     result_df.index.name = ti.measure_type[:-1] # Kill the "s", we view singularly
         
     return result_df    
-
-
-class gradExperimentTracker(categoryExperimentTracker) :
-    
-    """categoryExperimentTracker implementation for gradient data. Stores epochs and parameters by default.
-    """
-    
-    def __init__(self, xpi : expInput) :
-        super().__init__(xpi)
-        self._category = "grad"
-        self._data = torch.full(size = (xpi.n_captures, *self.xpi.nabla_shape), fill_value = torch.nan)
-    
-    def track(self) -> torch.Tensor :
-        return params2grad_vector(self.xpi.anet_model.parameters())
-    
-    def record(self, record_index : int = 0) -> None :
-        self._data[record_index, :] = self.track()

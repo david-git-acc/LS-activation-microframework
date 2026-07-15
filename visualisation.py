@@ -7,7 +7,7 @@ from rich.progress import Progress
 from typing import Any
 
 # CUSTOM
-from category_functions import is_ordinal
+from categories.registry import is_ordinal
 from dataclass_objects import expVisual, expConfig, activationResults
 from support.plotting_helpers import is_empty_axis
 from support.processing_helpers import symlog
@@ -42,7 +42,7 @@ def post_plotting_axes_ops(ax) -> None :
     if ymin < 0 < ymax : 
         ax.axhline(0, 0, 1, linestyle = "--", color = "red")
     
-def plot_data(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> None :
+def plot_data(x : np.ndarray, y, ax, plot_params : dict[str, Any], apply_symlog : bool = True ) -> None :
     # Can't add type to y or linter cries irrationally
     
     """
@@ -65,7 +65,7 @@ def plot_data(x : np.ndarray, y, ax, plot_params : dict[str, Any] ) -> None :
     match plot_params["plot_type"] :
         case "curve" :
             # Symmetric log scale - needs to be sign-preserving for negative values + 0
-            y = symlog(y)
+            if apply_symlog : y = symlog(y)
             
             ax.plot(x, y, label = plot_params["label"], color = plot_params["colour"], 
                     linestyle = plot_params["linestyle"], marker = plot_params["marker"], 
@@ -98,6 +98,9 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
         enforcing visual clarity/stability; first few readings are usually extremely unstable and high-magnitude.
         
     """
+    
+    # Unpack for ease of use and readability
+    eval_type, category, measure_type = xvp_triple
     
     # Delegate main work to dataclass to avoid unnecessary code bloat here
     figure_data = xvp.generate_figure_params(*xvp_triple)
@@ -139,12 +142,15 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
             x = ax_params["xticklabels"]
             y = activation_data[(reducer, kf_reducer)]
             
-            if is_ordinal(xvp_triple[1]) : # 2nd element = the category. Some categories ordinal, others not
+            if is_ordinal(category) : # 2nd element = the category. Some categories ordinal, others not
                 x = x[ax_params["nskip"]: ]
                 y = y[ax_params["nskip"]: ]
                 
-            plot_params = xvp.generate_plot_params(activation_name, xvp_triple[1], kf_reducer, plot_type)
-            plot_data(x, y, ax, plot_params)
+            plot_params = xvp.generate_plot_params(activation_name, category, kf_reducer, plot_type)
+            
+            # Must not apply symlog on metrics since metrics naturally enforce bounding, and could distort results
+            apply_symlog = False if category == "metrics" else True
+            plot_data(x, y, ax, plot_params, apply_symlog = apply_symlog)
         
     for reducer in reducers : 
         post_plotting_axes_ops(test2ax[reducer])

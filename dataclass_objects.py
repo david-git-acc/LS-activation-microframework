@@ -169,7 +169,7 @@ class expConfig() :
         """
         
         possible_linestyles = ["-", "--", ] +  list(mlines.lineStyles.keys())
-        possible_markers = list(mlines.lineMarkers.keys())
+        possible_markers = [".", "^",] + list(mlines.lineMarkers.keys())
         
         main_params = {
             "save_folder" : self.savename(),
@@ -231,7 +231,7 @@ class expVisual() :
         plot_type = determine_plot_type(eval_type, category, measure_type)
         
         # All curves get symlog treatment for numerical stability
-        if plot_type == "curve" : title += " (symlog)"
+        if plot_type == "curve" and category != "metrics" : title += " (symlog)"
         
         fig_params = {
             "savename" : f"{category}-{measure_type}_on_{eval_type}",

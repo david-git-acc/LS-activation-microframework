@@ -14,7 +14,7 @@ from support.config import config
 from support.torch_reducers import arithmetic_mean, last_elem, variance, stdeviation
 from support.parsing_helpers import name2index, safe_asdict
 from dataclass_objects import expConfig, expInput, experimentResult, activationResults, testInput
-from category_functions import category_registry, categoryExperimentLogger
+from categories.registry import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
 from activations import LS
 

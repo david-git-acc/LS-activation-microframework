@@ -1,0 +1,140 @@
+from __future__ import annotations
+from dataclasses import dataclass, replace
+from typing import Callable
+from abc import ABC, abstractmethod
+import torch
+import pandas as pd
+import numpy as np 
+
+### CUSTOM
+from dataclass_objects import expInput, experimentResult, testInput
+from support.config import config
+from support.processing_helpers import params2grad_vector, dfs_settings2tensors
+from support.parsing_helpers import name2index, safe_asdict
+from support.torch_reducers import donothing_dummy
+from categories.base_definitions import categoryExperimentTracker
+
+from categories.grad import *
+from categories.metrics import *
+from categories.testloss import *
+from categories.testpreds import *
+
+@dataclass
+class categoryParams() :
+    
+    """
+    Main container for each data recording category.
+
+    Params:
+        name: name of the category, e.g "grad".
+        
+        tracker: the class assigned to track changes in data throughout experiments. Must implement the 
+        methods data, track(), and record(). Class name should always be f"{category}ExperimentTracker".
+        
+        measure_types: tuple containing all different ways to measure over the data. E.g ("epochs", "params").
+        These are converted into dimension indices by the name2index helper function.
+        
+        _tester: the tester function used to perform all test functions on the extracted data, e.g 
+        "post_experiment_test_grad". Class name should always be f"post_experiment_test_{category}".
+    """
+    
+    name : str
+    tracker : type[categoryExperimentTracker]
+    tester : Callable
+    measure_types : tuple[str, ...] = ()
+    
+
+@dataclass 
+class categoryExperimentLogger() :
+    
+    """Main logger class over desired set of categories for a given experiment(); can be used for other functions as well.
+    Instantiate one of these loggers for each experiment(). Specify desired categories and they will be tracked.
+    
+    Also implements polymorphic forms of track(), record() and data to avoid boilerplate manual iteration over trackers.
+
+    Params:
+        xpi: set of input parameters for the experiment, and the data source for tracking and recording changes.
+        
+        categories: a single category or tuple of categories that we are interested in recording from.
+    """
+    
+    xpi : expInput
+    categories : tuple[str, ...] | str = "all"
+    
+    def __post_init__(self) :
+        
+        if self.categories == "all" :
+            self.categories = tuple(category_registry.keys()) # This will grab all existing categories in the registry
+        elif isinstance(self.categories, str) :
+            self.categories = (self.categories, )
+            
+        self.categories = tuple(self.categories) # Initialise all relevant trackers
+        self.trackers = { cat : category_registry[cat].tracker(self.xpi) for cat in self.categories } # meow
+
+    @property
+    def data(self) -> dict[str, torch.Tensor] :
+        """Polymorphic implementation of data for the entire logger. 
+
+        Returns:
+            dict[str, torch.Tensor]: data recorded from every tracker, identified by category name.
+        """
+        return { tracker.category : tracker.data for tracker in self.trackers.values()}
+
+    def track(self) -> dict[str, torch.Tensor] :
+        """Polymorphic implementation of data for the entire logger. Not directly required due to record().
+
+        Returns:
+            dict[str, torch.Tensor]: current tracked data from every tracker, identified by category name.
+        """
+        return { tracker.category : tracker.track() for tracker in self.trackers.values() }
+
+    def record(self, record_index : int = 0) -> None :
+        """Polymorphic implementation of tracker record() to avoid manual iteration.
+
+        Args:
+            record_index (int, optional): The index at which to record the tracked data. Defaults to 0.
+        """
+        for tracker in self.trackers.values() :
+            tracker.record(record_index)
+
+    @property
+    def result(self) -> experimentResult :
+        """Shorthand for returning the appropriate experimentResult object after concluding the experiment, 
+        to be passed down to other functions and methods.
+
+        Returns:
+            experimentResult: class encapsulating all values in its .results dictionary.
+        """
+        return experimentResult(self.data)
+    
+
+# When adding any new category, please instantiate and specify all parameters here to avoid data redundancy
+# Also, keep it in keyword argument format even if not necessary, for clarity
+category_registry : dict[str, categoryParams] = {
+    "grad" : categoryParams(name = "grad", 
+                            measure_types = ("epochs", "params"),
+                            tracker = gradExperimentTracker,
+                            tester = post_experiment_test_grad
+                            ),
+    "testloss" : categoryParams(name = "testloss", 
+                                measure_types = ("epochs",),
+                                tracker = testlossExperimentTracker,
+                                tester = post_experiment_test_testloss
+                                ),
+    "testpreds" : categoryParams(name = "testpreds", 
+                                 measure_types = ("epochs", "test_samples"),
+                                 tracker = testpredsExperimentTracker,
+                                 tester = post_experiment_test_testpreds
+                                 ),
+    "metrics" : categoryParams(name = "metrics",
+                              measure_types = ("epochs", ),
+                              tracker = metricsExperimentTracker,
+                              tester = post_experiment_test_metrics
+                              ),
+}
+
+ordinal_measure_types : set[str] = {"epochs", "layers"}
+
+def is_ordinal(measure_type : str) -> bool :
+    return measure_type in ordinal_measure_types
+

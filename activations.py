@@ -1,3 +1,4 @@
+from __future__ import annotations
 import torch
 from torch import nn
 from torch.nn import ReLU, Tanh
@@ -13,8 +14,10 @@ class IPLo(nn.Module):
     def forward(self, x):
         # return LIPLo_.apply(x, self.alpha)
         return torch.sign(x) * torch.log1p(torch.abs(x))
-    
-class LS(nn.Module) :
+
+
+def to_LS(base_activation : nn.Module, alpha : float = 0.01, learnable : bool = False, 
+          dtype : torch.dtype = torch.float32) -> type[nn.Module] :  
     
     """
         Superfunction that takes in a base activation function and applies the LS application to it:
@@ -35,44 +38,45 @@ class LS(nn.Module) :
             
     """
     
-    def __init__(self, base_activation : nn.Module, alpha : float = 0.01, learnable : bool = False,
-                 dtype : torch.dtype = torch.float32) :
-        super().__init__()
+    class LS(nn.Module) :
         
-        self.base_activation = base_activation
-        self.original_alpha = alpha
-        self.alpha = nn.Parameter(torch.tensor(alpha, dtype = dtype, requires_grad = True), requires_grad = learnable)
-        self.learnable = learnable
-        self.dtype = dtype
-        
-        self.register_buffer("f_prime_0", self.calculate_f_prime_at_0(), persistent = True)
-        
-    def calculate_f_prime_at_0(self, epsilon_thresh : float = 1e-10) -> torch.Tensor :
-        
-        x = torch.tensor([1e-5], requires_grad = True)
-        f_x = self.base_activation(x)
-                
-        grad_at_0 = torch.autograd.grad(f_x, x)[0].item()
+        def __init__(self) :
+            super().__init__()
+            
+            self.base_activation = base_activation()
+            self.original_alpha = alpha
+            self.alpha = nn.Parameter(torch.tensor(alpha, dtype = dtype, requires_grad = True), requires_grad = learnable)
+            self.learnable = learnable
+            self.dtype = dtype
+            
+            self.register_buffer("f_prime_0", self.calculate_f_prime_at_0(), persistent = True)
+            
+        def calculate_f_prime_at_0(self, epsilon_thresh : float = 1e-10) -> torch.Tensor :
+            
+            x = torch.tensor([1e-5], requires_grad = True)
+            f_x = self.base_activation(x)
+                    
+            grad_at_0 = torch.autograd.grad(f_x, x)[0].item()
 
-        if abs(grad_at_0) <= epsilon_thresh :
-            raise ValueError(f"Derivative of {get_name(self.base_activation)} at 0 is 0; not a valid function for LS conversion")
+            if abs(grad_at_0) <= epsilon_thresh :
+                raise ValueError(f"Derivative of {get_name(self.base_activation)} at 0 is 0; not a valid function for LS conversion")
 
-        return torch.tensor( grad_at_0, dtype = self.dtype)
+            return torch.tensor( grad_at_0, dtype = self.dtype)
 
-    def forward(self, X : torch.Tensor) -> torch.Tensor :
-        
-        a = torch.clip(self.alpha, min = 1e-10, max = 1 - 1e-10)
-        out = a * X + (1-a) * ( self.base_activation(X) / self.f_prime_0 )
-        
-        return out
+        def forward(self, X : torch.Tensor) -> torch.Tensor :
+            
+            a = torch.clip(self.alpha, min = 1e-10, max = 1 - 1e-10)
+            out = a * X + (1-a) * ( self.base_activation(X) / self.f_prime_0 )
+            
+            return out
+    return LS
 
-def to_LS(activation : nn.Module, alpha : float = 0.01) -> LS :    
-    return LS(activation, alpha = alpha)
+
 
 # Necessary. Activations must always be passed as CLASSES, not as instances
 activation_registry = { 
     "iplo" : IPLo,
     "tanh" : nn.Tanh,
-    "relu" : nn.ReLU
+    "relu" : nn.ReLU,
 }
 update_config(activation_registry, config, "activations")

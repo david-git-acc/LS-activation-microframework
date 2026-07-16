@@ -135,7 +135,7 @@ class expConfig() :
         hash_monstrosity = hashlib.sha256(as_str).hexdigest()
         
         if len(self.activation_names) == 1 :
-            plus_extra = f"{self.activation_names[0]}_alpha[{self.n_alphas}]"
+            plus_extra = f"{get_name(self.activations[0].base_activation)}_alpha[{self.n_alphas}]"
         else :
             plus_extra = "_".join([name[0] for name in self.activation_names])
         

@@ -7,7 +7,7 @@ max_samples: 51
 kfold_k: 10
 features: [bill_length_mm, bill_depth_mm, flipper_length_mm, body_mass_g]
 labels: [sex]
-activations: [ReLU, IPLo, Tanh]
+activations: [Tanh]
 eval_metrics: [accuracy, balanced_accuracy, mcc ]
 reducers: [log_average, mean, stdeviation]
 kf_reducers: [mean, stdeviation]

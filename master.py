@@ -2,12 +2,13 @@ from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from networks import ShortNetwork
 from dataclass_objects.config_objects import expConfig
 from torch import nn
+from dataclasses import replace
 
 # CUSTOM
 from visualisation import plot_activation_tests
 from support.config import df, df_train, df_test, config
 from support.parsing_helpers import safe_dict2params
-from activation_testing import complete_activation_test
+from activation_testing import complete_activation_test, LS_alpha_sensitivity_test
 
 # Separate numeric columns for different preprocessing
 numeric_columns = df.select_dtypes(include = "number").columns.tolist()
@@ -26,5 +27,6 @@ experiment_params = expConfig(
                         **safe_dict2params(config, expConfig)
                     )
 
-results = complete_activation_test(experiment_params, verbose = True)
-plot_activation_tests(results, experiment_params, verbose = False)
+results, new_exp_params = LS_alpha_sensitivity_test(experiment_params, verbose = True)
+
+plot_activation_tests(results, new_exp_params, verbose = False)

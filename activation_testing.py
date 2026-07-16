@@ -18,7 +18,7 @@ from dataclass_objects.input_objects import expInput, testInput
 from dataclass_objects.result_objects import experimentResult, activationResults
 from categories.registry import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
-from activations import LS
+from activations import to_LS
 
 
 def experiment(xpi : expInput) -> experimentResult : 
@@ -257,7 +257,7 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
                                                      tester = category_params[category].tester, 
                                                      typeof_result = (eval_type, category, measure_type))
                 results_df["activation"] = activation_name # So we can keep track
-
+                
                 total_activation_dfs[(eval_type, category, measure_type)].append(results_df)
                 progress.advance(work, 1)
 
@@ -268,7 +268,7 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
     return activationResults(total_activation_dfs)
 
 
-def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> activationResults :
+def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> tuple[activationResults, expConfig] :
     
     """
     Perform an alpha sensitivity test on an LS-converted activation function. Note that this implicitly assumes that
@@ -289,6 +289,8 @@ def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> 
         total_activation_dfs: a dictionary containing for each triple combination of evaluation type, category and
         measurement type, the corresponding dataframe of all associated results. 
         Each dataframe stores an agg-type test-type combination, e.g "('log_average', 'mean')" as a column name.
+        
+        expConfig: the modified experimentParams for the LS alpha sensitivity test, for future use.
     """
     
     if len(exp_params.activations) != 1 :
@@ -303,8 +305,8 @@ def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> 
     
     for alpha in alphas.tolist() : 
         
-        activation = LS(base_activation, alpha, learnable = False)     
-        activation_name = f"$\\alpha ={alpha:.2f}$" # So we can read it from the plot
+        activation = to_LS(base_activation, alpha, learnable = False)     
+        activation_name = f"$\\alpha = {alpha:.2f}$" # So we can read it from the plot
         
         activations.append(activation)
         activation_names.append(activation_name)
@@ -313,4 +315,4 @@ def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> 
                                     activations = activations,
                                     activation_names = activation_names)
     
-    return complete_activation_test(new_experiment_params, verbose = verbose)
+    return complete_activation_test(new_experiment_params, verbose = verbose), new_experiment_params

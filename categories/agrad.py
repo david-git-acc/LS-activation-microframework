@@ -22,16 +22,10 @@ class agradExperimentTracker(categoryExperimentTracker) :
     def track(self) -> torch.Tensor :
         
         grads_this_epoch = self.xpi.anet_model.activation_grads 
-        
-        for layer_index, grad in enumerate( grads_this_epoch ) :
-            if grad.numel() == 0 :
-                raise ValueError(f"Layer {layer_index} of activation grad data not initialised")
-        
-        # It's backpropagation so we will always get them back-to-front
-        grads_this_epoch.reverse()
-        
-        # Marginalise over batch size, we're not interested in tracking this; at most per neuron
-        mean_grads_this_epoch = [grad.nanmean(dim = 0).detach().cpu() for grad in grads_this_epoch]
+  
+        # Marginalise over batch size, we're not interested in tracking this; at most per neuron.
+        # Must reverse because backpropagation goes back to front, or else we'd get the wrong order for layers
+        mean_grads_this_epoch = [grad.nanmean(dim = 0).detach().cpu() for grad in reversed(grads_this_epoch.values())]
         
         padded_grads = pad_torch_stack(mean_grads_this_epoch, pad_with = torch.nan)
         

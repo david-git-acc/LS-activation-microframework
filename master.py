@@ -27,6 +27,6 @@ experiment_params = expConfig(
                         **safe_dict2params(config, expConfig)
                     )
 
-results, new_exp_params = LS_alpha_sensitivity_test(experiment_params, verbose = True)
+results = complete_activation_test(experiment_params, verbose = True)
 
-plot_activation_tests(results, new_exp_params, verbose = False)
+plot_activation_tests(results, experiment_params, verbose = False)

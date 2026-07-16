@@ -21,14 +21,10 @@ class aoutsExperimentTracker(categoryExperimentTracker) :
     
     def track(self) -> torch.Tensor :
         
-        outs_this_epoch = self.xpi.anet_model.activation_grads 
-        
-        for layer_index, out in enumerate( outs_this_epoch ) :
-            if out.numel() == 0 :
-                raise ValueError(f"Layer {layer_index} of activation output data not initialised")
+        outs_this_epoch = self.xpi.anet_model.activation_outs
         
         # Marginalise over batch size, we're not interested in tracking this; at most per neuron
-        mean_outs_this_epoch = [out.nanmean(dim = 0).detach().cpu() for out in outs_this_epoch]
+        mean_outs_this_epoch = [out.nanmean(dim = 0).detach().cpu() for out in outs_this_epoch.values()]
         padded_outs = pad_torch_stack(mean_outs_this_epoch, pad_with = torch.nan)
         
         # List dimension is over layers, so need dim = 0

@@ -22,14 +22,19 @@ class ActivationNetwork(ABC, nn.Module) :
         return self._structure
     
     def clear_activation_data(self) -> None :
-        self.activation_grads : list[torch.Tensor] = [torch.Tensor([]) for _ in range(self.length)]
-        self.activation_outs : list[torch.Tensor] = [torch.Tensor([]) for _ in range(self.length)]
+        self.activation_grads : dict[int, torch.Tensor] = {}
+        self.activation_outs : dict[int, torch.Tensor] = {}
     
     def create_activation_hook(self, layer_index : int = 0) -> Callable :
         
         def layer_activation_hook(module, inp, out) -> None :
             if self.training :
-                self.activation_outs[layer_index] = out[0].detach().cpu()      
+                
+                if isinstance(out, tuple) :
+                    result = out[0].detach().cpu()   
+                else : 
+                    result =  out.detach().cpu()     
+                self.activation_outs[layer_index] = result     
         
         return layer_activation_hook
     
@@ -38,7 +43,11 @@ class ActivationNetwork(ABC, nn.Module) :
         def layer_activation_grad_hook(module, grad_in, grad_out) -> None :
             # Denied from using type hints due to unreasonable type structure - torch hooks really are a mess
             if self.training :
-                self.activation_grads[layer_index] = grad_out[0].detach().cpu()
+                
+                if isinstance(grad_out, tuple) :
+                    self.activation_grads[layer_index] = grad_out[0].detach().cpu()
+                else :
+                    self.activation_grads[layer_index] = grad_out.detach().cpu()
                 
         return layer_activation_grad_hook
 

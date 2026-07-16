@@ -6,12 +6,12 @@ import matplotlib
 from rich.progress import Progress
 from typing import Any
 
-# CUSTOM
-from categories.registry import is_ordinal
+### CUSTOM
+from categories.base_definitions import is_ordinal
 from dataclass_objects.config_objects import expVisual, expConfig
 from dataclass_objects.result_objects import activationResults
 from support.plotting_helpers import is_empty_axis, df2csv
-from support.processing_helpers import symlog
+from support.processing_helpers import symlog, sampling_indices
 from support.parsing_helpers import create_path
 
 matplotlib.use('Agg') # No interactive window, purely file-based rendering
@@ -26,6 +26,12 @@ def populate_axes(ax, ax_params : dict[str, Any]) -> None :
     ax.set_ylabel(ax_params["ylabel"])
     ax.grid(ax_params["grid"])
     
+    # We only set x-ticks if there is an x-axis. For KDEs/histplots, y-axis becomes x-axis so no need
+    if ax_params["xaxis"] :
+        # +1 because normally this function captures indices and we go from 1-n, not 0-n-1
+        xticks = sampling_indices(max(ax_params["xaxis"]) + 1, ax_params["nxticks"])
+        ax.set_xticks(ticks = xticks)
+    
 def post_plotting_axes_ops(ax) -> None :
     
     """
@@ -33,7 +39,7 @@ def post_plotting_axes_ops(ax) -> None :
     """
     
     if is_empty_axis(ax) :
-        ax.axis("off")
+        ax.figure.delaxes(ax)
         return
     
     ax.legend(loc = "upper left", fontsize = 9)   
@@ -116,8 +122,6 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
     )
     axes = axes.flatten() # Easier to work with
     
-    plot_type = figure_data["plot_type"]
-    
     # Every test will be of the form (reducer, kf_reducer) - anything else e.g index is invalid
     all_tests = [col for col in results_df.columns.tolist() if isinstance(col, tuple)]
     reducers = {reducer for reducer, kf_reducer in sorted(all_tests)}
@@ -125,8 +129,6 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
     # Each test type gets its own axes object. Had to use set to avoid duplicates,
     # since each test appears len(kf_reducers) times over all the columns
     test2ax = dict(zip(reducers, axes))
-    # print(results_df.head())
-    # assert 0
     activation_groups = results_df.groupby("activation")
     
     for reducer, kf_reducer in all_tests :
@@ -142,19 +144,20 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
             if verbose : print(f"{test_agg_str} Plotting activation {activation_name}")
             activation_data = activation_groups.get_group(activation_name)
 
-            x = ax_params["xticklabels"]
+            x = ax_params["xaxis"]
             y = activation_data[(reducer, kf_reducer)]
             
-            if is_ordinal(category) : # 2nd element = the category. Some categories ordinal, others not
+            # Must not skip layers, because too few of them 
+            if is_ordinal(measure_type) and measure_type != "layers" : 
                 x = x[ax_params["nskip"]: ]
                 y = y[ax_params["nskip"]: ]
                 
-            plot_params = xvp.generate_plot_params(activation_name, category, kf_reducer, plot_type)
+            plot_params = xvp.generate_plot_params(activation_name, category, kf_reducer, figure_data["plot_type"])
             # Must not apply symlog on metrics since metrics naturally enforce bounding, and could distort results
             plot_data(x, y, ax, plot_params, apply_symlog = False if category == "metrics" else True)
         
-    for reducer in reducers : 
-        post_plotting_axes_ops(test2ax[reducer])
+    for ax in axes : 
+        post_plotting_axes_ops(ax)
         
     savename = f"{xvp.save_folder}/figures/{figure_data['savename']}.pdf"
     

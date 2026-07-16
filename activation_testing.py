@@ -12,7 +12,7 @@ from support.processing_helpers import (sampling_indices, pd_data_transformer, d
                                         get_number_of_features_and_classes)
 from support.config import config
 from support.torch_reducers import arithmetic_mean, last_elem, variance, stdeviation
-from support.parsing_helpers import name2index, safe_asdict
+from support.parsing_helpers import safe_asdict
 from dataclass_objects.config_objects import expConfig
 from dataclass_objects.input_objects import expInput, testInput
 from dataclass_objects.result_objects import experimentResult, activationResults
@@ -229,20 +229,20 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
     n_features, n_classes = get_number_of_features_and_classes(exp_params.df_train, exp_params.labels)
 
     # Add to these incrementally and then concatenate at the end to turn into dataframes.
-    total_activation_dfs = {(eval_type, category.name, measure_type) : [] 
+    total_activation_dfs = {(eval_type, category, measure_type) : [] 
                             for eval_type in ("train", "test")
-                            for category in category_params.values()
-                            for measure_type in category.measure_types }
+                            for category in category_params.keys()
+                            for measure_type in category_params[category].measure_types }
     
     with Progress() as progress :
         work = progress.add_task("Experiment progress:", total = len(exp_params.activations) * len(total_activation_dfs))
         
         for activation_index, activation in enumerate( exp_params.activations ) : 
-
+            
             network = exp_params.network_type(activation, n_inputs = n_features, n_outputs = n_classes)
             activation_name = exp_params.activation_names[activation_index] 
             
-            net_act_str = f"[Network: {network.__class__.__name__}, Activation: {activation.__class__.__name__}]"  
+            net_act_str = f"[Network: {network.__class__.__name__}, Activation: {activation.__name__}]"  
             if verbose : progress.console.log(f"Executing configuration: {net_act_str}")
 
             # Pass in params dataclass directly because function signature may become arbitrarily long with more additions

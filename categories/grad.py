@@ -7,8 +7,7 @@ import numpy as np
 from dataclass_objects.input_objects import expInput, testInput
 from support.config import config
 from support.processing_helpers import params2grad_vector
-from support.parsing_helpers import name2index
-from categories.base_definitions import categoryExperimentTracker
+from categories.base_definitions import categoryExperimentTracker, measure_type2dim
 
 class gradExperimentTracker(categoryExperimentTracker) :
     
@@ -47,7 +46,7 @@ def post_experiment_test_grad(ti : testInput) -> pd.DataFrame :
     
     # The dimensions to marginalise in are always all dimensions except the dimension we care about 
     # + the kfold dimension (last)
-    dim = tuple(i for i in range(len(ti.X.size()) - 1 ) if i != name2index(ti.measure_type) ) 
+    dim = tuple(i for i in range(len(ti.X.size()) - 1 ) if i != measure_type2dim(ti.measure_type) ) 
     
     # Store everything we collect here
     test_results = []

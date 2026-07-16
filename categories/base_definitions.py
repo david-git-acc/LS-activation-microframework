@@ -73,3 +73,20 @@ class categoryExperimentTracker(ABC) :
         """
         pass
      
+
+ordinal_measure_types : set[str] = {"epochs", "layers"}
+
+def is_ordinal(measure_type : str) -> bool :
+    return measure_type in ordinal_measure_types
+
+def measure_type2dim(name : str) -> int :
+    
+    mapping = {
+        "epochs" : 0,
+        "params" : 1,
+        "test_samples" : 1,
+        "layers" : 1,
+        "neurons" : 2,
+    }
+    
+    return mapping[name]

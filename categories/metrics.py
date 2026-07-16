@@ -6,8 +6,8 @@ import pandas as pd
 from dataclass_objects.input_objects import expInput, testInput
 from support.config import config
 from support.processing_helpers import dfs_settings2tensors
-from support.parsing_helpers import name2index, safe_asdict
-from categories.base_definitions import categoryExperimentTracker
+from support.parsing_helpers import safe_asdict
+from categories.base_definitions import categoryExperimentTracker, measure_type2dim
 
 
 class metricsExperimentTracker(categoryExperimentTracker) :
@@ -59,7 +59,7 @@ def post_experiment_test_metrics(ti : testInput) -> pd.DataFrame :
     # Ground truths are Y test, which will be the 4th and final element of the processing
     ground_truths = [Y_test.numpy() for X_train, X_test, Y_train, Y_test in processed_kf_data ]
     
-    nepochs = ti.X.shape[name2index("epochs")]
+    nepochs = ti.X.shape[measure_type2dim("epochs")]
     nfolds = ti.X.shape[-1]
     
     result_dict = { metric_name : torch.full(size = (nepochs, nfolds), fill_value = torch.nan) 

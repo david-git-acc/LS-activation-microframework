@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from torch import nn
 import torch
+from typing import Callable
 
 class ActivationNetwork(ABC, nn.Module) :
     
@@ -9,9 +10,7 @@ class ActivationNetwork(ABC, nn.Module) :
     
         self.n_inputs : int = n_inputs
         self.n_outputs : int = n_outputs
-        self.activation : nn.Module = activation
-        self.activation_outs : list[torch.Tensor] = []
-        self.activation_grads : list[torch.Tensor] = []
+        self.activation : type[nn.Module] = activation
         self._structure : nn.Sequential | None = None
 
     @property
@@ -23,23 +22,31 @@ class ActivationNetwork(ABC, nn.Module) :
         return self._structure
     
     def clear_activation_data(self) -> None :
-        self.activation_grads = []
-        self.activation_outs = []
+        self.activation_grads : list[torch.Tensor] = [torch.Tensor([]) for _ in range(self.length)]
+        self.activation_outs : list[torch.Tensor] = [torch.Tensor([]) for _ in range(self.length)]
     
-    def create_activation_hook(self, module, inp, out) -> None :
-        if self.training :
-            self.activation_outs.append(out[0].detach().cpu())      
+    def create_activation_hook(self, layer_index : int = 0) -> Callable :
+        
+        def layer_activation_hook(module, inp, out) -> None :
+            if self.training :
+                self.activation_outs[layer_index] = out[0].detach().cpu()      
+        
+        return layer_activation_hook
     
-    def create_activation_grad_hook(self, module, grad_in, grad_out) -> None :
-        # Denied from using type hints due to unreasonable type structure - torch hooks really are a mess
-        if self.training :
-            self.activation_grads.append(grad_out[0].detach().cpu())
+    def create_activation_grad_hook(self, layer_index : int = 0) -> Callable :
+        
+        def layer_activation_grad_hook(module, grad_in, grad_out) -> None :
+            # Denied from using type hints due to unreasonable type structure - torch hooks really are a mess
+            if self.training :
+                self.activation_grads[layer_index] = grad_out[0].detach().cpu()
+                
+        return layer_activation_grad_hook
 
     def create_all_activation_hooks(self) -> None :
-        for layer in self.structure :
-            if isinstance(layer, type(self.activation)) :
-                layer.register_full_backward_hook(self.create_activation_grad_hook)
-                layer.register_forward_hook(self.create_activation_hook)
+        self.clear_activation_data()
+        for layer_index, layer in enumerate( layer for layer in self.structure if isinstance(layer, self.activation) ) :
+            layer.register_full_backward_hook(self.create_activation_grad_hook(layer_index))
+            layer.register_forward_hook(self.create_activation_hook(layer_index))
     
     def layer_widths(self) -> list[int] :
         
@@ -50,10 +57,12 @@ class ActivationNetwork(ABC, nn.Module) :
         
         return widths
     
+    @property
     def width(self) -> int :
         
         return max(self.layer_widths())
     
+    @property
     def length(self) -> int :
         
         return len(self.layer_widths())
@@ -73,13 +82,13 @@ class ShortNetwork(ActivationNetwork) :
         
         self._structure = nn.Sequential(
             nn.Linear(n_inputs, 5),
-            activation,
+            activation(),
             nn.Linear(5, 10),
-            activation,
-            nn.Linear(10, 5),
-            activation,
-            nn.Linear(5, n_outputs),
-            activation
+            activation(),
+            nn.Linear(10, 6),
+            activation(),
+            nn.Linear(6, n_outputs),
+            activation()
         )
     
         self.create_all_activation_hooks() 

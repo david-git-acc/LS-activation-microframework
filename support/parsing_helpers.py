@@ -74,17 +74,6 @@ def validate_activation_df_column_names(test_suite : list[Callable] | tuple[Call
     
     return updated_test_columns
 
-def name2index(name : str) -> int :
-    
-    mapping = {
-        "epochs" : 0,
-        "params" : 1,
-        "test_samples" : 1,
-        "folds" : 2
-    }
-    
-    return mapping.get(name, 2)
-
 
 def extract_tuple_list(arr : list[tuple[Any, ...]]) -> list[list[Any]] :
     

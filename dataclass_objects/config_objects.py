@@ -4,16 +4,18 @@ import pandas as pd
 from typing import Any, Callable
 import torch
 from torch import nn
+from torch.nn import Identity
 import matplotlib.lines as mlines
 import json
 import hashlib
 from math import ceil
+import numpy as np
 
 # CUSTOM
 from networks import ActivationNetwork
 from support.parsing_helpers import validate_activation_df_column_names, is_hashable, smart_str, safe_asdict, get_name, extract_tuple_list
 from support.processing_helpers import sampling_indices, params2grad_vector, pad_torch_stack
-from support.plotting_helpers import get_n_colours, determine_plot_type, generate_plot_title
+from support.plotting_helpers import get_n_colours, determine_plot_type, category2name
 from support.torch_reducers import arithmetic_mean
 
 
@@ -28,50 +30,30 @@ class expConfig() :
     
     Params:
         df_train: dataframe for train data.
-        
         df_test: dataframe for test data.
-        
         labels: list of columns that are to be predicted from features (presumed rest)
-        
         network_type: type of neural network to work with for the experiment and perform predictions.
-        
         loss: loss metric to judge predictions by. 
-        
         feature_transforms: tuple of tuples, where the first entry of each tuple is the list of columns to be transformed,
         and the second entry is the transformer class to apply the transformation to each of the columns.
-        
         label_transforms: same as feature_transforms, but for labels.
-        
         reducers: tuple of test functions to apply on finished results to marginalise unwanted dimensions. 
         activations: tuple of all activation functions to run in the experiment.
-        
         kf_reducers: tuple of all aggregation functions to collapse folds over in K-fold crossvalidation, 
         e.g mean, variance, etc over folds. Note for test data it's interpreted as 1-fold crossvalidation, and only 
         mean is permitted for this.
-        
         lr: constant learning rate. Can be changed to a variable one.
-        
         kfold_k: number of folds to use in Kfold cross validation. 10 is the industry standard.
-        
         n_alphas: number of different alpha values in the range (0,1) to use for LS sensitivity testing, with uniform spacing.
         E.g n_alphas = 5 would imply the alpha values (0.0, 0.25, 0.50, 0.75, 1.0).
-        
         batch_size: size of train set used per iteration per epoch. Higher values increase gradient accuracy at the cost of time.
-        
         max_samples: maximum number of samples to record (does not change number of epochs). Higher values create denser graphs.
-        
         epochs: number of total training runs to apply to the neural network, where each epoch is a full pass of df_train.
-        
         activation_names: list of display names for the activation functions, index-linked with activations.
-
         reducer_names: list of display names for the test functions. Again, index-linked with reducers.
-        
         kf_reducer_names: list of display names for the aggregation functions, index-linked with kf_reducers.
-        
         features_dtype: datatype of all features. Multiple datatypes for different features are not currently supported.
-        
         labels_dtype: same as features_dtype but for labels.
-        
         categories: tuple of all categories to test over. Defaults to all of them if none selected.
 
     """
@@ -127,6 +109,9 @@ class expConfig() :
         if "arithmetic_mean" not in {get_name(f) for f in self.kf_reducers } : # Use this since funcs have no ==
             self.kf_reducer_names.append("mean")
             self.kf_reducers += (arithmetic_mean, )
+        
+        # Used so we can access ._structure, .height and .width easily
+        self.dummy = self.network_type(Identity)
                 
     def savename(self , maxlen : int = 10) -> str :
         
@@ -202,8 +187,15 @@ class expVisual() :
     kf_aggfunc_markerstyles : dict[str, str]
     experiment : expConfig
     
+    def generate_figure_title(self, eval_type : str, category : str, measure_type : str ) -> str :
+        
+        fold_explanation = f", {self.experiment.kfold_k}-fold" if eval_type == "train" else ""
+        title = f"{category2name(category)} {eval_type} data{fold_explanation} results measured over {measure_type}"
+        
+        return title
+    
     def generate_figure_params(self, eval_type : str, category : str, measure_type : str,
-                               plots_per_row : int = 3) -> dict[str, Any] :
+                               plots_per_row : int = 2) -> dict[str, Any] :
         
         """
         Generate parameters dictionary for a given figure and triple (eval_type, category, measure_type).
@@ -212,7 +204,7 @@ class expVisual() :
             eval_type: the evaluation type (train/test) of the data. 
             category: what type of data (gradient, testloss, test predictions, etc) is being measured.
             measure_type: what the valid dimension (independent variable) is. Usually "epochs", but not always.
-            plots_per_row: how many plots should be represented on each given row. Defaults to 3 for appearances.
+            plots_per_row: how many plots should be represented on each given row. Defaults to 2 for appearances.
 
         Returns:
             dictionary of parameters for the given figure, to be plugged in during visualisation.
@@ -225,7 +217,7 @@ class expVisual() :
         special_cases = { "testloss" : (1, 1) }
         if category in special_cases : nrows, ncols = special_cases[category]
         
-        title = generate_plot_title(category, 1 if eval_type == "test" else self.experiment.kfold_k)
+        title = self.generate_figure_title(eval_type, category, measure_type)
         plot_type = determine_plot_type(eval_type, category, measure_type)
         
         # All curves get symlog treatment for numerical stability
@@ -245,6 +237,16 @@ class expVisual() :
         }
         
         return fig_params
+    
+    def generate_xaxis(self, measure_type : str) -> list[int] :
+    
+        match measure_type :
+            case "epochs" :
+                return sampling_indices(self.experiment.epochs, self.experiment.max_samples)
+            case "layers" :
+                return list(range(self.experiment.dummy.length))
+            case _ :
+                return []
     
     def generate_axes_params(self, reducer : str, fig_params : dict[str, Any], nskip: int = 5) -> dict[str, Any] :
         
@@ -270,8 +272,6 @@ class expVisual() :
             case _ :
                 xlabel, ylabel = ("x-axis placeholder label", "y-axis placeholder label")
 
-        xticklabels = sampling_indices(self.experiment.epochs, self.experiment.max_samples)
-        
         ax_params = { 
             "reducer" : reducer, 
             "plot_type" : fig_params["plot_type"],
@@ -279,7 +279,7 @@ class expVisual() :
             "ylabel" : ylabel,
             "grid" : True, 
             "nxticks" : 10,
-            "xticklabels" : xticklabels,
+            "xaxis" : self.generate_xaxis(fig_params["measure_type"]),
             "nskip" : nskip
         }
     

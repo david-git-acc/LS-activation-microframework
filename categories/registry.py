@@ -11,6 +11,8 @@ from categories.grad import *
 from categories.metrics import *
 from categories.testloss import *
 from categories.testpreds import *
+from categories.agrad import *
+from categories.aouts import *
 
 @dataclass
 class categoryParams() :
@@ -52,11 +54,11 @@ class categoryExperimentLogger() :
     """
     
     xpi : expInput
-    categories : tuple[str, ...] | str = "all"
+    categories : tuple[str, ...] 
     
     def __post_init__(self) :
         
-        if self.categories == "all" :
+        if self.categories == ("all", ) :
             self.categories = tuple(category_registry.keys()) # This will grab all existing categories in the registry
         elif isinstance(self.categories, str) :
             self.categories = (self.categories, )
@@ -104,30 +106,33 @@ class categoryExperimentLogger() :
 # When adding any new category, please instantiate and specify all parameters here to avoid data redundancy
 # Also, keep it in keyword argument format even if not necessary, for clarity
 category_registry : dict[str, categoryParams] = {
-    "grad" : categoryParams(name = "grad", 
+    "grad" : categoryParams(name = "gradients", 
                             measure_types = ("epochs", "params"),
                             tracker = gradExperimentTracker,
                             tester = post_experiment_test_grad
                             ),
-    "testloss" : categoryParams(name = "testloss", 
+    "testloss" : categoryParams(name = "test loss", 
                                 measure_types = ("epochs",),
                                 tracker = testlossExperimentTracker,
                                 tester = post_experiment_test_testloss
                                 ),
-    "testpreds" : categoryParams(name = "testpreds", 
+    "testpreds" : categoryParams(name = "test predictions", 
                                  measure_types = ("epochs", "test_samples"),
                                  tracker = testpredsExperimentTracker,
                                  tester = post_experiment_test_testpreds
                                  ),
-    "metrics" : categoryParams(name = "metrics",
+    "metrics" : categoryParams(name = "evaluation metrics",
                               measure_types = ("epochs", ),
                               tracker = metricsExperimentTracker,
                               tester = post_experiment_test_metrics
                               ),
+    "agrad" : categoryParams(name = "activation gradients",
+                             measure_types = ("epochs", "layers", "neurons"), 
+                             tracker = agradExperimentTracker,
+                             tester = post_experiment_test_agrad),
+    "aouts" : categoryParams(name = "activation outputs",
+                             measure_types = ("epochs", "layers", "neurons"), 
+                             tracker = aoutsExperimentTracker,
+                             tester = post_experiment_test_aouts),
 }
-
-ordinal_measure_types : set[str] = {"epochs", "layers"}
-
-def is_ordinal(measure_type : str) -> bool :
-    return measure_type in ordinal_measure_types
 

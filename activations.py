@@ -67,10 +67,10 @@ class LS(nn.Module) :
         return out
     
 
-# Necessary
+# Necessary. Activations must always be passed as CLASSES, not as instances
 activation_registry = { 
-    "iplo" : IPLo(),
-    "tanh" : nn.Tanh(),
-    "relu" : nn.ReLU()
+    "iplo" : IPLo,
+    "tanh" : nn.Tanh,
+    "relu" : nn.ReLU
 }
 update_config(activation_registry, config, "activations")

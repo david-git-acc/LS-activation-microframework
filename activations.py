@@ -65,7 +65,9 @@ class LS(nn.Module) :
         out = a * X + (1-a) * ( self.base_activation(X) / self.f_prime_0 )
         
         return out
-    
+
+def to_LS(activation : nn.Module, alpha : float = 0.01) -> LS :    
+    return LS(activation, alpha = alpha)
 
 # Necessary. Activations must always be passed as CLASSES, not as instances
 activation_registry = { 

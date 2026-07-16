@@ -3,3 +3,7 @@ __pycache__
 datasets/*
 legacy_code
 experiments/*
+
+
+!datasets/.gitkeep
+!experiments/.gitkeep

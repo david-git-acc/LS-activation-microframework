@@ -15,6 +15,7 @@ from support.processing_helpers import symlog, sampling_indices
 from support.parsing_helpers import create_path
 
 matplotlib.use('Agg') # No interactive window, purely file-based rendering
+plt.style.use("seaborn-v0_8-whitegrid")
 
 def populate_axes(ax, ax_params : dict[str, Any]) -> None :
 
@@ -42,7 +43,7 @@ def post_plotting_axes_ops(ax) -> None :
         ax.figure.delaxes(ax)
         return
     
-    ax.legend(loc = "upper left", fontsize = 9)   
+    ax.legend(fontsize = 9)   
      
     # Show the x-axis for reference
     ymin, ymax = ax.get_ylim()
@@ -76,7 +77,7 @@ def plot_data(x : np.ndarray, y, ax, plot_params : dict[str, Any], apply_symlog 
             
             ax.plot(x, y, label = plot_params["label"], color = plot_params["colour"], 
                     linestyle = plot_params["linestyle"], marker = plot_params["marker"], 
-                    markersize = plot_params["markersize"] )
+                    markersize = plot_params["markersize"], markevery = len(x) // 10 + 1 )
         case "kde" : 
             sns.kdeplot(x = y, color = plot_params["colour"], label = plot_params["label"], 
                         linestyle = plot_params["linestyle"], ax = ax, alpha = 0.3, fill = True, common_norm = False)

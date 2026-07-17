@@ -264,11 +264,13 @@ class expVisual() :
             Dictionary of parameters for the given axes object.
         """
         
+        reducer_title = f"{fig_params["category"]} {reducer}".title()
+        
         match fig_params["plot_type"] :
             case "curve" :  # Remove the "s", e.g "epochs" -> "epoch", "params" -> "param"
-                xlabel, ylabel = (fig_params["measure_type"][:-1], reducer) 
+                xlabel, ylabel = (fig_params["measure_type"][:-1].title(), reducer_title) 
             case "kde" | "histplot" :
-                xlabel, ylabel = (reducer, "frequency density")
+                xlabel, ylabel = (reducer_title, "Frequency Density")
             case _ :
                 xlabel, ylabel = ("x-axis placeholder label", "y-axis placeholder label")
 

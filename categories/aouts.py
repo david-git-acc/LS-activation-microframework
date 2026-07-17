@@ -16,7 +16,7 @@ class aoutsExperimentTracker(categoryExperimentTracker) :
         super().__init__(xpi)
         
         self._category = "aouts"
-        activation_data_shape = (self.xpi.anet_model.length, self.xpi.anet_model.width)
+        activation_data_shape = (self.xpi.anet_model.n_activations, self.xpi.anet_model.width)
         self._data = torch.full(size = (self.xpi.n_captures, *activation_data_shape), fill_value = torch.nan)
     
     def track(self) -> torch.Tensor :

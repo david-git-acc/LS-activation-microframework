@@ -5,6 +5,7 @@ lr: 0.005
 batch_size: -1
 max_recorded_samples: 51
 kfold_k: 10
+n_alphas: 5
 features: [bill_length_mm, bill_depth_mm, flipper_length_mm, body_mass_g]
 labels: [sex]
 activations: [Tanh, IPLo, ReLU]

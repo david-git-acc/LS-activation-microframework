@@ -45,7 +45,8 @@ def to_LS(base_activation : nn.Module, alpha : float = 0.01, learnable : bool = 
             
             self.base_activation = base_activation()
             self.original_alpha = alpha
-            self.alpha = nn.Parameter(torch.tensor(alpha, dtype = dtype, requires_grad = True), requires_grad = learnable)
+            self.alpha = nn.Parameter(torch.tensor(alpha, dtype = dtype, requires_grad = True), 
+                                      requires_grad = learnable)
             self.learnable = learnable
             self.dtype = dtype
             

@@ -1,5 +1,5 @@
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
-from networks import ShortNetwork
+from networks import ShortNetwork, DiamondNetwork
 from dataclass_objects.config_objects import expConfig
 from torch import nn
 from dataclasses import replace
@@ -20,7 +20,7 @@ label_transforms = ( (nonnumerics, OrdinalEncoder(handle_unknown = "use_encoded_
 
 experiment_params = expConfig(
                         df_train, df_test, 
-                        network_type = ShortNetwork, 
+                        network_type = DiamondNetwork, 
                         loss = nn.CrossEntropyLoss(),
                         feature_transforms = feature_transforms,
                         label_transforms = label_transforms,

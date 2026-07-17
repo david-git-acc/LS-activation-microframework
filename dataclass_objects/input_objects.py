@@ -44,7 +44,7 @@ class expInput() :
     batch_size : int = -1
     max_recorded_samples : int = -1
     categories : tuple[str, ...] = ("grad",)
-    device_thresh : int = 1000
+    device_thresh : int = 1
     
     def __post_init__(self) : 
         # Use full-batch GD if no batch size given

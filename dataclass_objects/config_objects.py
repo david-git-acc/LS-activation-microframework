@@ -152,8 +152,8 @@ class expConfig() :
             The visual parameters dataclass, with its associated attributes and methods.
         """
         
-        possible_linestyles = ["-", "--", ] +  list(mlines.lineStyles.keys())
-        possible_markers = [".", "^",] + list(mlines.lineMarkers.keys())
+        possible_linestyles = ["solid", "dashdot", (0, (3, 1, 1, 1)) ] +  list(mlines.lineStyles.keys())
+        possible_markers = ["8", "^", "d",] + list(mlines.lineMarkers.keys())
         
         main_params = {
             "save_folder" : self.savename(),
@@ -244,7 +244,7 @@ class expVisual() :
             case "epochs" :
                 return sampling_indices(self.experiment.epochs, self.experiment.max_recorded_samples)
             case "layers" :
-                return list(range(self.experiment.dummy.length))
+                return list(range(self.experiment.dummy.n_activations))
             case _ :
                 return []
     

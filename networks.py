@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from torch import nn
 import torch
 from typing import Callable
+import numpy as np
+from math import ceil, floor
 
 class ActivationNetwork(ABC, nn.Module) :
     
@@ -82,6 +84,11 @@ class ActivationNetwork(ABC, nn.Module) :
         return max(self.layer_widths())
     
     @property
+    def n_activations(self) -> int :
+        
+        return len( self.get_activations() )
+    
+    @property
     def length(self) -> int :
         
         return len(self.layer_widths())
@@ -106,12 +113,52 @@ class ShortNetwork(ActivationNetwork) :
             activation(),
             nn.Linear(10, 6),
             activation(),
-            nn.Linear(6, n_outputs),
-            activation()
+            nn.Linear(6, n_outputs)
         )
     
         self.create_all_activation_hooks() 
 
+    @property
+    def structure(self) -> nn.Sequential : 
+        return super().structure
+
+    def forward(self, X) :
+        return super().forward(X)
+    
+    
+class DiamondNetwork(ActivationNetwork) :
+    
+    def __init__(self, activation, n_inputs : int = 1, n_outputs : int = 1, 
+                 full_length : int = 20, max_width : int = 50) :
+        super().__init__(activation, n_inputs, n_outputs)
+        
+        self.full_length = full_length
+        self.max_width = max_width
+        self._structure = self.generate_structure()
+        
+        self.create_all_activation_hooks() 
+        
+    def generate_structure(self) -> nn.Sequential :
+        # We add full_length + 1 layers so there are exactly full_length layers
+        left_widths = np.geomspace(self.n_inputs, self.max_width, floor(self.full_length / 2) + 1, endpoint = True)
+        right_widths = np.geomspace(self.max_width, self.n_outputs, ceil(self.full_length / 2), endpoint = True)
+        layer_lengths = left_widths.astype(int).tolist() + right_widths.astype(int).tolist() 
+        
+        structure = []
+        for layer_index, layer_length in enumerate(layer_lengths[1:], start = 1) :
+            
+            prior_layer_length = layer_lengths[layer_index - 1]
+            layer_itself = nn.Linear(prior_layer_length, layer_length)
+            
+            # Avoid += logic to avoid O(l^2) concat operations
+            structure.append(layer_itself)
+            structure.append(self.activation())
+            
+        # We added an extra activation at the end so get rid of it
+        structure.pop()
+        
+        return nn.Sequential(*structure)
+    
     @property
     def structure(self) -> nn.Sequential : 
         return super().structure

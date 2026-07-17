@@ -5,10 +5,10 @@ from typing import Any, Callable
 import yaml
 import random
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, matthews_corrcoef, balanced_accuracy_score
+from sklearn.metrics import accuracy_score, matthews_corrcoef, balanced_accuracy_score, r2_score
 
 # CUSTOM
-from support.torch_reducers import arithmetic_mean, variance, log_average, stdeviation
+from support.torch_reducers import arithmetic_mean, variance, log_average, stdeviation, norm
 
 # INITIALISATION
 
@@ -40,12 +40,13 @@ def update_config(registed_params : dict[str, Callable], config : dict[str, Any]
 function_registry : dict[str, Callable] = { 
     "mean" : arithmetic_mean,
     "log_average" : log_average,
+    "norm" : norm,
     "variance" : variance,
+    "stdeviation" : stdeviation,
     "accuracy" : accuracy_score, 
     "balanced_accuracy" : balanced_accuracy_score,
     "mcc" : matthews_corrcoef,
-    "stdeviation" : stdeviation,
-    
+    "r2" : r2_score,
 }
     
 # Necessary

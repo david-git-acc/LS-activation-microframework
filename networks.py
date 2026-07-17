@@ -50,10 +50,20 @@ class ActivationNetwork(ABC, nn.Module) :
                     self.activation_grads[layer_index] = grad_out.detach().cpu()
                 
         return layer_activation_grad_hook
+    
+    def get_activations(self) -> dict[int, nn.Module] :
+        activations = {}
+        for layer_index, layer in enumerate( layer for layer in self.structure 
+                                            if isinstance(layer, self.activation) ) :
+            activations[layer_index] = layer
+            
+        return activations
+        
 
     def create_all_activation_hooks(self) -> None :
         self.clear_activation_data()
-        for layer_index, layer in enumerate( layer for layer in self.structure if isinstance(layer, self.activation) ) :
+        for layer_index, layer in enumerate( layer for layer in self.structure 
+                                            if isinstance(layer, self.activation) ) :
             layer.register_full_backward_hook(self.create_activation_grad_hook(layer_index))
             layer.register_forward_hook(self.create_activation_hook(layer_index))
     

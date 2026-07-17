@@ -28,7 +28,7 @@ class expInput() :
         epochs: number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
         lr: constant learning rate value. In theory, you could pass in a variable learning rate here (not recommended).
         batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all examples per step).
-        max_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all).
+        max_recorded_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all).
         categories: tuple of all category data that the experiment should track throughout the experiment. Defaults to grad.
     """
     
@@ -42,32 +42,60 @@ class expInput() :
     epochs : int = 500 
     lr : float = 0.001
     batch_size : int = -1
-    max_samples : int = -1
+    max_recorded_samples : int = -1
     categories : tuple[str, ...] = ("grad",)
+    device_type : str = "cpu"
     
     def __post_init__(self) : 
         # Use full-batch GD if no batch size given
         self.batch_size = len(self.X_train_tensor) if self.batch_size == -1 else self.batch_size
-        self.max_samples = self.epochs if self.max_samples == -1 else self.max_samples
+        self.max_recorded_samples = self.epochs if self.max_recorded_samples == -1 else self.max_recorded_samples
         
         self.training_dataset = TensorDataset(self.X_train_tensor, self.Y_train_tensor)
-        self.training_dataloader = DataLoader(self.training_dataset, self.batch_size, shuffle = True )
+        self.training_dataloader = DataLoader(self.training_dataset, self.batch_size, shuffle = True, pin_memory = True)
 
         self.optim = self.optim_type(self.anet_model.parameters(), lr = self.lr)
         self.saved_params : dict[str, Any] = {}
+        
+        self.to_device(self.device_type)
+        self.save_state()
         
     def save_state(self) -> None :
         self.saved_params["anet_model"] = { param : value.clone() 
                                            for param, value in self.anet_model.state_dict().items() }
         self.saved_params["optim"] = copy.deepcopy(self.optim.state_dict())
+        self.saved_params["device_type"] = self.device_type
     
-    def reload_state(self) -> None :
+    def reload_state(self, switch_device : bool = True) -> None :
         self.anet_model.load_state_dict(self.saved_params["anet_model"])
         self.optim.load_state_dict(self.saved_params["optim"])
-    
+
+        if switch_device :
+            self.device_type = self.saved_params["device_type"]
+            self.to_device(self.device_type)
+
+    def to_device(self, device_type : str, strict : bool = False) -> None :
+        if device_type == "cuda" and not torch.cuda.is_available() :
+            error_msg = "Tried to set to GPU mode, but CUDA is not available"
+            if strict : raise ValueError(error_msg)
+            else : print(f"Warning: {error_msg}")
+        
+        if self.anet_model._structure is None :
+            raise ValueError(f"Network model structure for {type(self.anet_model)} is not defined")
+        
+        self.device = torch.device(device_type) 
+        for torch_object in (self.anet_model, self.target_loss, self.anet_model._structure) :
+            torch_object.to(self.device)
+        
+        # Necessary evil boilerplate
+        self.X_train_tensor = self.X_train_tensor.to(self.device)
+        self.X_test_tensor = self.X_test_tensor.to(self.device)
+        self.Y_train_tensor = self.Y_train_tensor.to(self.device)
+        self.Y_test_tensor = self.Y_test_tensor.to(self.device)
+
     @property
     def n_captures(self) -> int :
-        return min(self.epochs, self.max_samples)
+        return min(self.epochs, self.max_recorded_samples)
     
     
 @dataclass

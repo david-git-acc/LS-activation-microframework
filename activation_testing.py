@@ -8,10 +8,10 @@ from dataclasses import replace
 from rich.progress import Progress
 
 # CUSTOM
-from support.processing_helpers import (sampling_indices, pd_data_transformer, dfs_settings2tensors, 
+from support.processing_helpers import (sampling_indices, dfs_settings2tensors, 
                                         get_number_of_features_and_classes)
 from support.config import config
-from support.torch_reducers import arithmetic_mean, last_elem, variance, stdeviation
+from support.torch_reducers import arithmetic_mean
 from support.parsing_helpers import safe_asdict
 from dataclass_objects.config_objects import expConfig
 from dataclass_objects.input_objects import expInput, testInput
@@ -32,6 +32,7 @@ def experiment(xpi : expInput) -> experimentResult :
     
     Params:
         xpi: the main input params class for this function, containing all of the attributes below.
+        device_thresh: number of samples before swapping to GPU
         
         
     Returns:
@@ -39,6 +40,7 @@ def experiment(xpi : expInput) -> experimentResult :
     """
     
     xpi.save_state()
+    xpi.to_device("cuda", strict = False)
     record_epochs = set(sampling_indices(xpi.epochs, xpi.n_captures))
     
     # Used for data recording
@@ -49,6 +51,10 @@ def experiment(xpi : expInput) -> experimentResult :
         
         xpi.anet_model.train()
         for X_train_batch, Y_train_batch in xpi.training_dataloader :
+            # Must be on same device to do processing with
+            X_train_batch = X_train_batch.to(xpi.device)
+            Y_train_batch = Y_train_batch.to(xpi.device)
+            
             xpi.optim.zero_grad()
             predictions = xpi.anet_model(X_train_batch)
             loss : torch.Tensor = xpi.target_loss(predictions, Y_train_batch)
@@ -63,7 +69,7 @@ def experiment(xpi : expInput) -> experimentResult :
             logger.record(record_index)
             record_index += 1 
             
-    xpi.reload_state()        
+    xpi.reload_state(switch_device = False)        
     
     # gm = 2D (epochs, parameters), AL = 3D (epochs, layers, neurons), TL = 1D (epochs), TP = 2D (epochs, n_test)
     return logger.result
@@ -74,7 +80,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
                        feature_transforms : tuple[tuple[list[str], Any], ...] = (),
                        label_transforms : tuple[tuple[list[str], Any], ...] = (),
                        dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long), 
-                       epochs : int = 500, batch_size : int = -1, max_samples : int = -1,
+                       epochs : int = 500, batch_size : int = -1, max_recorded_samples : int = -1,
                        categories : tuple[str, ...] = ("grad",)) -> experimentResult :
     
     """
@@ -94,7 +100,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
         dtypes: 2-tuple containing data types of features and of labels after transformation. Only supports one type per group.
         epochs: number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
         batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all training examples per step)
-        max_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all). 
+        max_recorded_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all). 
         
     Returns:
         experimentResult: stores all the captured data for future use
@@ -105,7 +111,8 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
                                                             labels, dtypes)
     
     return experiment(expInput(X_train, X_test, Y_train, Y_test, model, target_loss = loss, 
-                      epochs = epochs, batch_size = batch_size, max_samples = max_samples, categories = categories))
+                      epochs = epochs, batch_size = batch_size, max_recorded_samples = max_recorded_samples, 
+                      categories = categories))
 
 def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | list[str], 
                 loss : nn.Module,
@@ -113,7 +120,7 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
                 label_transforms : tuple[tuple[list[str], Any], ...] = (),
                 dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long),
                 kfold_k : int = 10, epochs : int = 500, 
-                batch_size : int = -1, max_samples : int = -1,
+                batch_size : int = -1, max_recorded_samples : int = -1,
                 categories : tuple[str, ...] = ("grad",)) -> experimentResult :
     
     """
@@ -132,7 +139,7 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
         will be left untransformed.
         dtypes: 2-tuple containing data types of features and of labels after transformation. Only supports one type per group.  
         batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all training examples per step)
-        max_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all).
+        max_recorded_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all).
 
     NOTE: For any future use or modification, note that the k-fold dimension must *always* be the last one, or the program breaks.
 
@@ -157,7 +164,7 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
                                feature_transforms = feature_transforms, 
                                label_transforms = label_transforms, 
                                dtypes = dtypes, epochs = epochs, 
-                               batch_size = batch_size, max_samples = max_samples, loss = loss,
+                               batch_size = batch_size, max_recorded_samples = max_recorded_samples, loss = loss,
                                categories = categories) 
         
         exp_results.append(fold_result)

@@ -47,7 +47,7 @@ class expConfig() :
         n_alphas: number of different alpha values in the range (0,1) to use for LS sensitivity testing, with uniform spacing.
         E.g n_alphas = 5 would imply the alpha values (0.0, 0.25, 0.50, 0.75, 1.0).
         batch_size: size of train set used per iteration per epoch. Higher values increase gradient accuracy at the cost of time.
-        max_samples: maximum number of samples to record (does not change number of epochs). Higher values create denser graphs.
+        max_recorded_samples: maximum number of samples to record (does not change number of epochs). Higher values create denser graphs.
         epochs: number of total training runs to apply to the neural network, where each epoch is a full pass of df_train.
         activation_names: list of display names for the activation functions, index-linked with activations.
         reducer_names: list of display names for the test functions. Again, index-linked with reducers.
@@ -72,7 +72,7 @@ class expConfig() :
     kfold_k : int = 10
     n_alphas : int = 5
     batch_size : int = -1 # full batch
-    max_samples : int = -1 # no limit
+    max_recorded_samples : int = -1 # no limit
     epochs : int = 500
     activation_names : list[str] = field(default_factory = list)
     reducer_names : list[str] = field(default_factory = list)
@@ -242,7 +242,7 @@ class expVisual() :
     
         match measure_type :
             case "epochs" :
-                return sampling_indices(self.experiment.epochs, self.experiment.max_samples)
+                return sampling_indices(self.experiment.epochs, self.experiment.max_recorded_samples)
             case "layers" :
                 return list(range(self.experiment.dummy.length))
             case _ :

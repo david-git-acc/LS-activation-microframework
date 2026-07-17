@@ -1,6 +1,7 @@
 import torch
 
 
+
 # REQUIREMENTS FOR REDUCER FUNCTIONS
 # Reducers should have two key properties;
 # P1. Should be generalisable to any arbitrary dimension or subset (dims can be int or tuple)
@@ -56,3 +57,7 @@ def last_elem(X : torch.Tensor, dim : int | tuple = 0) -> torch.Tensor :
                 print(f"Warning: attempted to select over ({len(dims_left)}) dimensions. Defaulting to dim {dim}.")
 
     return X.select(dim = dim, index = -1)
+
+def norm(X : torch.Tensor, dim : int | tuple = 0) -> torch.Tensor :
+    
+    return torch.linalg.norm(X, dim = dim)

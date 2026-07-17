@@ -24,7 +24,7 @@ experiment_params = expConfig(
                         loss = nn.CrossEntropyLoss(),
                         feature_transforms = feature_transforms,
                         label_transforms = label_transforms,
-                        **safe_dict2params(config, expConfig)
+                        **safe_dict2params(config, expConfig),
                     )
 
 results = complete_activation_test(experiment_params, verbose = True)

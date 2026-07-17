@@ -44,7 +44,7 @@ class expInput() :
     batch_size : int = -1
     max_recorded_samples : int = -1
     categories : tuple[str, ...] = ("grad",)
-    device_type : str = "cpu"
+    device_thresh : int = 1000
     
     def __post_init__(self) : 
         # Use full-batch GD if no batch size given
@@ -57,7 +57,10 @@ class expInput() :
         self.optim = self.optim_type(self.anet_model.parameters(), lr = self.lr)
         self.saved_params : dict[str, Any] = {}
         
+        # Below typical dataset sizes, GPU becomes slower than CPU
+        self.device_type = self.preferred_device
         self.to_device(self.device_type)
+        
         self.save_state()
         
     def save_state(self) -> None :
@@ -65,10 +68,12 @@ class expInput() :
                                            for param, value in self.anet_model.state_dict().items() }
         self.saved_params["optim"] = copy.deepcopy(self.optim.state_dict())
         self.saved_params["device_type"] = self.device_type
+        self.saved_params["training"] = self.anet_model.training
     
     def reload_state(self, switch_device : bool = True) -> None :
         self.anet_model.load_state_dict(self.saved_params["anet_model"])
         self.optim.load_state_dict(self.saved_params["optim"])
+        self.anet_model.train(self.saved_params["training"])
 
         if switch_device :
             self.device_type = self.saved_params["device_type"]
@@ -92,6 +97,12 @@ class expInput() :
         self.X_test_tensor = self.X_test_tensor.to(self.device)
         self.Y_train_tensor = self.Y_train_tensor.to(self.device)
         self.Y_test_tensor = self.Y_test_tensor.to(self.device)
+    
+    @property 
+    def preferred_device(self) -> str :
+        if len(self.X_train_tensor) >= self.device_thresh and torch.cuda.is_available() :
+            return "cuda"
+        return "cpu"
 
     @property
     def n_captures(self) -> int :

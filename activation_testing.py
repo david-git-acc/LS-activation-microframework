@@ -34,13 +34,12 @@ def experiment(xpi : expInput) -> experimentResult :
         xpi: the main input params class for this function, containing all of the attributes below.
         device_thresh: number of samples before swapping to GPU
         
-        
     Returns:
         experimentResult : stores all the captured data for future use.
     """
     
     xpi.save_state()
-    xpi.to_device("cuda", strict = False)
+    xpi.to_device(xpi.preferred_device, strict = False)
     record_epochs = set(sampling_indices(xpi.epochs, xpi.n_captures))
     
     # Used for data recording

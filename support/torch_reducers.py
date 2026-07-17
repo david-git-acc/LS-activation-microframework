@@ -60,4 +60,5 @@ def last_elem(X : torch.Tensor, dim : int | tuple = 0) -> torch.Tensor :
 
 def norm(X : torch.Tensor, dim : int | tuple = 0) -> torch.Tensor :
     
-    return torch.linalg.norm(X, dim = dim)
+    safe_X = torch.nan_to_num(X, nan = 0.0)
+    return torch.linalg.norm(safe_X, dim = dim)

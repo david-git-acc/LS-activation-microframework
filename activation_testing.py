@@ -47,6 +47,7 @@ def experiment(xpi : expInput) -> experimentResult :
     
     record_index = 0
     for epoch in range(xpi.epochs) :
+        xpi.anet_model.record(epoch in record_epochs)
         
         xpi.anet_model.train()
         for X_train_batch, Y_train_batch in xpi.training_dataloader :
@@ -61,7 +62,7 @@ def experiment(xpi : expInput) -> experimentResult :
             xpi.optim.step()
         
         # Only capture the data at specified record times
-        if epoch not in record_epochs : continue
+        if not xpi.anet_model.recording : continue
             
         xpi.anet_model.eval()
         with torch.no_grad() :

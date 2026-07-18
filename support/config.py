@@ -21,7 +21,7 @@ def import_config(config_saveloc : str = "config.yaml") -> dict[str, Any]:
 
 config = import_config()
 
-df = pd.read_csv("datasets/penguins.csv", index_col = 0)
+df = pd.read_csv("datasets/extended_flower_morphometrics.csv").head(5000)
 df = df[config["features"] + config["labels"]].dropna(how = "any").reset_index(drop=True)
 df_train, df_test = train_test_split(df, test_size = config["test_size"])
 

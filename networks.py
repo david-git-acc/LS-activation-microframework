@@ -14,6 +14,7 @@ class ActivationNetwork(ABC, nn.Module) :
         self.n_outputs : int = n_outputs
         self.activation : type[nn.Module] = activation
         self._structure : nn.Sequential | None = None
+        self.recording = False
 
     @property
     @abstractmethod    
@@ -26,31 +27,29 @@ class ActivationNetwork(ABC, nn.Module) :
     def clear_activation_data(self) -> None :
         self.activation_grads : dict[int, torch.Tensor] = {}
         self.activation_outs : dict[int, torch.Tensor] = {}
+        
+    def record(self, mode : bool = True) -> None :
+        self.recording = mode
     
     def create_activation_hook(self, layer_index : int = 0) -> Callable :
         
         def layer_activation_hook(module, inp, out) -> None :
-            if self.training :
+            if self.training and self.recording :
                 
-                if isinstance(out, tuple) :
-                    result = out[0].detach().cpu()   
-                else : 
-                    result =  out.detach().cpu()     
-                self.activation_outs[layer_index] = result     
-        
+                result : torch.Tensor = out[0] if isinstance(out, tuple) else out
+                self.activation_outs[layer_index] = result.detach().cpu()
+                
         return layer_activation_hook
     
     def create_activation_grad_hook(self, layer_index : int = 0) -> Callable :
         
         def layer_activation_grad_hook(module, grad_in, grad_out) -> None :
             # Denied from using type hints due to unreasonable type structure - torch hooks really are a mess
-            if self.training :
+            if self.training and self.recording :
                 
-                if isinstance(grad_out, tuple) :
-                    self.activation_grads[layer_index] = grad_out[0].detach().cpu()
-                else :
-                    self.activation_grads[layer_index] = grad_out.detach().cpu()
-                
+                result : torch.Tensor = grad_out[0] if isinstance(grad_out, tuple) else grad_out
+                self.activation_grads[layer_index] = result.detach().cpu()
+                      
         return layer_activation_grad_hook
     
     def get_activations(self) -> dict[int, nn.Module] :
@@ -129,7 +128,7 @@ class ShortNetwork(ActivationNetwork) :
 class DiamondNetwork(ActivationNetwork) :
     
     def __init__(self, activation, n_inputs : int = 1, n_outputs : int = 1, 
-                 full_length : int = 20, max_width : int = 50) :
+                 full_length : int = 15, max_width : int = 100) :
         super().__init__(activation, n_inputs, n_outputs)
         
         self.full_length = full_length

@@ -4,7 +4,7 @@ from typing import Any, Callable
 import torch
 from torch import nn
 from math import ceil
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, BatchSampler, RandomSampler
 import copy
 
 # CUSTOM
@@ -50,16 +50,20 @@ class expInput() :
         # Use full-batch GD if no batch size given
         self.batch_size = len(self.X_train_tensor) if self.batch_size == -1 else self.batch_size
         self.max_recorded_samples = self.epochs if self.max_recorded_samples == -1 else self.max_recorded_samples
-        
-        self.training_dataset = TensorDataset(self.X_train_tensor, self.Y_train_tensor)
-        self.training_dataloader = DataLoader(self.training_dataset, self.batch_size, shuffle = True, pin_memory = True)
-
+    
         self.optim = self.optim_type(self.anet_model.parameters(), lr = self.lr)
         self.saved_params : dict[str, Any] = {}
         
         # Below typical dataset sizes, GPU becomes slower than CPU
         self.device_type = self.preferred_device
         self.to_device(self.device_type)
+        
+        self.training_dataset = TensorDataset(self.X_train_tensor, self.Y_train_tensor)
+        self.training_dataloader = DataLoader(self.training_dataset, batch_size = None, 
+                                              sampler = BatchSampler(RandomSampler(self.training_dataset), 
+                                                                     batch_size = self.batch_size, 
+                                                                     drop_last = False), 
+                                              pin_memory = self.device_type != "cuda")
         
         self.save_state()
         
@@ -69,11 +73,13 @@ class expInput() :
         self.saved_params["optim"] = copy.deepcopy(self.optim.state_dict())
         self.saved_params["device_type"] = self.device_type
         self.saved_params["training"] = self.anet_model.training
+        self.saved_params["recording"] = self.anet_model.recording
     
     def reload_state(self, switch_device : bool = True) -> None :
         self.anet_model.load_state_dict(self.saved_params["anet_model"])
         self.optim.load_state_dict(self.saved_params["optim"])
         self.anet_model.train(self.saved_params["training"])
+        self.anet_model.record(self.saved_params["recording"])
 
         if switch_device :
             self.device_type = self.saved_params["device_type"]

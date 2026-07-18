@@ -4,7 +4,6 @@ from torch import nn
 from torch.nn import ReLU, Tanh
 
 # CUSTOM
-from support.config import config, update_config
 from support.parsing_helpers import get_name
 
 class IPLo(nn.Module):
@@ -16,7 +15,7 @@ class IPLo(nn.Module):
         return torch.sign(x) * torch.log1p(torch.abs(x))
 
 
-def to_LS(base_activation : nn.Module, alpha : float = 0.01, learnable : bool = False, 
+def to_LS(base_activation : type[nn.Module], alpha : float = 0.01, learnable : bool = False, 
           dtype : torch.dtype = torch.float32) -> type[nn.Module] :  
     
     """
@@ -71,13 +70,3 @@ def to_LS(base_activation : nn.Module, alpha : float = 0.01, learnable : bool = 
             
             return out
     return LS
-
-
-
-# Necessary. Activations must always be passed as CLASSES, not as instances
-activation_registry = { 
-    "iplo" : IPLo,
-    "tanh" : nn.Tanh,
-    "relu" : nn.ReLU,
-}
-update_config(activation_registry, config, "activations")

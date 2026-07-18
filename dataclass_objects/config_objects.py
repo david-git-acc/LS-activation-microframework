@@ -65,7 +65,7 @@ class expConfig() :
     loss : nn.Module
     feature_transforms : tuple[tuple[list[str], Any]]
     label_transforms : tuple[tuple[list[str], Any]]
-    activations : list[nn.Module] | tuple[nn.Module, ...]
+    activations : list[type[nn.Module]] | tuple[type[nn.Module], ...]
     reducers : tuple[Callable, ...]
     kf_reducers : tuple[Callable, ...]
     lr : float = 0.001
@@ -135,7 +135,7 @@ class expConfig() :
         hash_monstrosity = hashlib.sha256(as_str).hexdigest()
         
         if len(self.activation_names) == 1 :
-            plus_extra = f"{get_name(self.activations[0].base_activation)}_alpha[{self.n_alphas}]"
+            plus_extra = f"{get_name(self.activations[0])}_alpha[{self.n_alphas}]"
         else :
             plus_extra = "_".join([name[0] for name in self.activation_names])
         

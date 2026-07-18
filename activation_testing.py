@@ -89,7 +89,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
 
     Params: 
         df_train: Dataframe containing train data.
-        df_tes: Dataframe containing test data.
+        df_test: Dataframe containing test data.
         model: model for use in experiment. 
         labels: subset of columns to be predicted on.
         loss: loss function.

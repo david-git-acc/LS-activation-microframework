@@ -6,10 +6,53 @@ batch_size: -1
 max_recorded_samples: 51
 kfold_k: 10
 n_alphas: 5
-features: [sepal_length_cm,sepal_width_cm,petal_length_cm,petal_width_cm,stem_thickness_mm,petal_density_pct,chlorophyll_index,native_altitude_m]
-labels: [species]
-activations: [Tanh, IPLo, ReLU]
-eval_metrics: [accuracy, balanced_accuracy, mcc ]
-reducers: [log_average, mean, stdeviation, norm]
-kf_reducers: [mean, stdeviation]
-categories: [grad, testloss, testpreds, metrics, agrad, aouts]
+
+features: 
+  - sepal_length_cm
+  - sepal_width_cm
+  - petal_length_cm
+  - petal_width_cm
+  - stem_thickness_mm
+  - petal_density_pct
+  - chlorophyll_index
+  - native_altitude_m
+
+labels: 
+  - species
+
+activations: 
+  - Tanh
+  - IPLo
+  - ReLU
+
+eval_metrics: 
+  - accuracy
+  - balanced_accuracy
+  - mcc
+
+reducers: 
+  - log_average
+  - mean
+  - stdeviation
+  - norm
+
+kf_reducers:
+  - mean
+  - stdeviation
+
+categories:
+  - grad
+  - testloss
+  - testpreds
+  - metrics
+  - agrad
+  - aouts
+
+activation_mods:
+  Tanh:
+    LS:
+      alpha: 0.65
+  IPLo:
+    LS:
+      alpha: 0.25
+      learnable: true

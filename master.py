@@ -20,7 +20,6 @@ label_transforms = ( (nonnumerics, OrdinalEncoder(handle_unknown = "use_encoded_
 
 experiment_params = expConfig(
                         df_train, df_test, 
-                        network_type = DiamondNetwork, 
                         loss = nn.CrossEntropyLoss(),
                         feature_transforms = feature_transforms,
                         label_transforms = label_transforms,
@@ -28,5 +27,4 @@ experiment_params = expConfig(
                     )
 
 results = complete_activation_test(experiment_params, verbose = True)
-
 plot_activation_tests(results, experiment_params, verbose = False)

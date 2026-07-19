@@ -249,7 +249,7 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
             network = exp_params.network_type(activation, n_inputs = n_features, n_outputs = n_classes)
             activation_name = exp_params.activation_names[activation_index] 
             
-            net_act_str = f"[Network: {network.__class__.__name__}, Activation: {activation.__name__}]"  
+            net_act_str = f"[Network: {network.name}, Activation: {activation.__name__}]"  
             if verbose : progress.console.log(f"Executing configuration: {net_act_str}")
 
             # Pass in params dataclass directly because function signature may become arbitrarily long with more additions

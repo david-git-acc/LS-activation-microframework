@@ -7,17 +7,31 @@ from math import ceil, floor
 
 class ActivationNetwork(ABC, nn.Module) :
     
-    def __init__(self, activation, n_inputs : int = 1, n_outputs : int = 1) : 
+    def __init__(self, activation : type[nn.Module], n_inputs : int = 1, n_outputs : int = 1) : 
         super().__init__()    
-    
+        
+        self._name = ""
         self.n_inputs : int = n_inputs
         self.n_outputs : int = n_outputs
         self.activation : type[nn.Module] = activation
         self._structure : nn.Sequential | None = None
         self.recording = False
+        self.hook_structures = []
+        
+        self.clear_activation_data()
+
+    @abstractmethod
+    def generate_structure(self) -> nn.Sequential :
+        pass
 
     @property
-    @abstractmethod    
+    def name(self) -> str :
+        if not self._name : 
+            raise ValueError("Name not instantiated for activation network")
+        
+        return self._name
+
+    @property   
     def structure(self) -> nn.Sequential :
         error_msg = "No sequential structure defined for ActivationNetwork inheriting subclass"
         assert isinstance(self._structure, nn.Sequential), error_msg 
@@ -27,6 +41,12 @@ class ActivationNetwork(ABC, nn.Module) :
     def clear_activation_data(self) -> None :
         self.activation_grads : dict[int, torch.Tensor] = {}
         self.activation_outs : dict[int, torch.Tensor] = {}
+    
+    def clear_hooks(self) -> None :
+    
+        for hook_struct in self.hook_structures : 
+            hook_struct.remove()
+        self.hook_structures = []
         
     def record(self, mode : bool = True) -> None :
         self.recording = mode
@@ -52,6 +72,7 @@ class ActivationNetwork(ABC, nn.Module) :
                       
         return layer_activation_grad_hook
     
+    
     def get_activations(self) -> dict[int, nn.Module] :
         activations = {}
         for layer_index, layer in enumerate( layer for layer in self.structure 
@@ -60,13 +81,18 @@ class ActivationNetwork(ABC, nn.Module) :
             
         return activations
         
-
+        
     def create_all_activation_hooks(self) -> None :
         self.clear_activation_data()
+        self.clear_hooks() # Prevent accumulation of hooks
         for layer_index, layer in enumerate( layer for layer in self.structure 
                                             if isinstance(layer, self.activation) ) :
-            layer.register_full_backward_hook(self.create_activation_grad_hook(layer_index))
-            layer.register_forward_hook(self.create_activation_hook(layer_index))
+            grad_hook_struct = layer.register_full_backward_hook(self.create_activation_grad_hook(layer_index))
+            out_hook_struct = layer.register_forward_hook(self.create_activation_hook(layer_index))
+    
+            # Track to remove in next call. I don't know why we have to do it like this, it's how torch works
+            self.hook_structures.append(grad_hook_struct)
+            self.hook_structures.append(out_hook_struct)
     
     def layer_widths(self) -> list[int] :
         
@@ -76,6 +102,11 @@ class ActivationNetwork(ABC, nn.Module) :
                 widths.append(layer.out_features)
         
         return widths
+  
+    @property
+    def n_activations(self) -> int :
+        
+        return len( self.get_activations() )
     
     @property
     def width(self) -> int :
@@ -83,17 +114,11 @@ class ActivationNetwork(ABC, nn.Module) :
         return max(self.layer_widths())
     
     @property
-    def n_activations(self) -> int :
-        
-        return len( self.get_activations() )
-    
-    @property
     def length(self) -> int :
         
         return len(self.layer_widths())
         
-    @abstractmethod
-    def forward(self, X) :
+    def forward(self, X : torch.Tensor) -> torch.Tensor :
         if self.training :
             self.clear_activation_data()
             
@@ -105,32 +130,28 @@ class ShortNetwork(ActivationNetwork) :
     def __init__(self, activation, n_inputs : int = 1, n_outputs : int = 1) :
         super().__init__(activation, n_inputs, n_outputs)
         
-        self._structure = nn.Sequential(
-            nn.Linear(n_inputs, 5),
-            activation(),
-            nn.Linear(5, 10),
-            activation(),
-            nn.Linear(10, 6),
-            activation(),
-            nn.Linear(6, n_outputs)
-        )
-    
+        self._name = "ShortNetwork"
+        self._structure = self.generate_structure()
         self.create_all_activation_hooks() 
 
-    @property
-    def structure(self) -> nn.Sequential : 
-        return super().structure
+    def generate_structure(self) -> nn.Sequential:
+        return nn.Sequential(
+            nn.Linear(self.n_inputs, 5),
+            self.activation(),
+            nn.Linear(5, 10),
+            self.activation(),
+            nn.Linear(10, 6),
+            self.activation(),
+            nn.Linear(6, self.n_outputs)
+        )
 
-    def forward(self, X) :
-        return super().forward(X)
-    
-    
 class DiamondNetwork(ActivationNetwork) :
     
     def __init__(self, activation, n_inputs : int = 1, n_outputs : int = 1, 
                  full_length : int = 15, max_width : int = 100) :
         super().__init__(activation, n_inputs, n_outputs)
         
+        self._name = "DiamondNetwork"
         self.full_length = full_length
         self.max_width = max_width
         self._structure = self.generate_structure()
@@ -157,10 +178,40 @@ class DiamondNetwork(ActivationNetwork) :
         structure.pop()
         
         return nn.Sequential(*structure)
-    
-    @property
-    def structure(self) -> nn.Sequential : 
-        return super().structure
 
-    def forward(self, X) :
-        return super().forward(X)
+def to_batchnorm(anet : type[ActivationNetwork]) -> type[ActivationNetwork] :
+    
+    class BatchNormNetwork(ActivationNetwork) :
+        
+        # Unlike in to_LS, we keep all the non-batchnorm-related specifics algebraic
+        # so we can compose with other transforms e.g to_layernorm (future)
+        def __init__(self, activation : type[nn.Module], n_inputs : int = 1, n_outputs : int = 1) :
+            super().__init__(activation, n_inputs, n_outputs)
+            
+            # Instantiate a dummy so we can access the class-specific shared attributes
+            self.base = anet 
+            self._name = "BN-" + anet(nn.Identity, 1, 1).name
+            self._structure = self.generate_structure()
+            self.create_all_activation_hooks() 
+            
+        def generate_structure(self) -> nn.Sequential :
+
+            current_structure = self.base(self.activation, self.n_inputs, self.n_outputs).structure
+            new_structure = []
+            
+            for layer_index in range(len(current_structure) - 1) :
+                
+                current_layer = current_structure[layer_index]
+                next_layer = current_structure[layer_index + 1]
+                
+                new_structure.append(current_layer)
+                
+                if isinstance(current_layer, nn.Linear) and isinstance(next_layer, self.activation) :
+                    batchnorm = nn.BatchNorm1d(current_layer.out_features, affine = True)
+                    new_structure.append(batchnorm)
+
+            new_structure.append(current_structure[-1])
+            
+            return nn.Sequential(*new_structure)
+    
+    return BatchNormNetwork

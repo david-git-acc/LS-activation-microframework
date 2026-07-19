@@ -9,6 +9,7 @@ from sklearn.metrics import accuracy_score, matthews_corrcoef, balanced_accuracy
 from torch import nn
 
 ### CUSTOM
+from networks import ShortNetwork, DiamondNetwork, ActivationNetwork, to_batchnorm
 from activations import IPLo, to_LS
 
 # CUSTOM
@@ -35,6 +36,11 @@ activation_registry : dict[str, type[nn.Module]] = {
     "relu" : nn.ReLU,
 }
 
+network_registry : dict[str, type[ActivationNetwork]] = {
+    "shortnetwork" : ShortNetwork,
+    "diamondnetwork" : DiamondNetwork
+}
+
 
 def import_config(config_saveloc : str = "config.yaml") -> dict[str, Any]:
     
@@ -47,6 +53,7 @@ def import_config(config_saveloc : str = "config.yaml") -> dict[str, Any]:
     config_names2functions(function_registry, config, "eval_metrics")
     
     handle_activation_mods(activation_registry, config)
+    handle_network_mods(network_registry, config)
 
     return config
 
@@ -60,19 +67,18 @@ def config_names2functions(registed_params : dict[str, Callable], config : dict[
     config[namestring] = [registed_params[name.lower()] for name in config[namestring_names]]
     
 
-def handle_activation_mods(activation_registry : dict[str, type[nn.Module]], 
-                                         config : dict[str, Any]) -> None :
+def handle_activation_mods(activation_registry : dict[str, type[nn.Module]], config : dict[str, Any]) -> None :
     
     additional_details = config.get("activation_mods", {})
     
     modified_activations = {}
-    for activation_name in additional_details :
+    for activation_name, activation_dict in additional_details.items() :
         
         lowercase_aname = activation_name.lower()
-        activation_dict : dict[str, dict[str, Any]] = additional_details[activation_name]
+        activation = activation_registry[lowercase_aname]
         
         if activation_dict.get("LS", False) :
-            modified_activation = to_LS(activation_registry[lowercase_aname], **activation_dict["LS"])
+            modified_activation = to_LS(activation, **activation_dict["LS"])
             details = (f"LS-{activation_dict["LS"].get("alpha", ""):.2f}[{activation_name}]", modified_activation)
             modified_activations[activation_name] = details
     
@@ -86,7 +92,21 @@ def handle_activation_mods(activation_registry : dict[str, type[nn.Module]],
         activation_names[a_index] = modified_name
         activations[a_index] = modified_actfunc        
                     
-
+def handle_network_mods(network_registry : dict[str, type[ActivationNetwork]], config : dict[str, Any]) -> None :
+    
+    network_modifications : dict[str, dict] = config.get("network_mods", {})
+    
+    for network_name, network_dict in network_modifications.items() :
+        
+        lowercase_nname = network_name.lower()
+        network = network_registry[lowercase_nname]
+        
+        if network_dict.get("batchnorm", False) :
+            modified_network = to_batchnorm(network)
+            network_registry[network_name] = modified_network
+        
+    config["network_type"] = network_registry[config["network_type"].lower()]        
+        
 
 config = import_config()
 

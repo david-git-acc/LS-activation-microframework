@@ -6,6 +6,7 @@ batch_size: -1
 max_recorded_samples: 51
 kfold_k: 10
 n_alphas: 5
+network_type: diamondnetwork
 
 features: 
   - sepal_length_cm
@@ -29,6 +30,7 @@ eval_metrics:
   - accuracy
   - balanced_accuracy
   - mcc
+  - r2
 
 reducers: 
   - log_average
@@ -52,7 +54,15 @@ activation_mods:
   Tanh:
     LS:
       alpha: 0.65
+      learnable: true
   IPLo:
     LS:
       alpha: 0.25
       learnable: true
+
+network_mods:
+  diamondnetwork:
+    batchnorm: true
+  
+  shortnetwork:
+    batchnorm: false

@@ -7,6 +7,7 @@ import numpy as np
 from dataclass_objects.input_objects import expInput, testInput
 from support.config import config
 from support.processing_helpers import params2grad_vector
+from support.parsing_helpers import singularise
 from categories.base_definitions import categoryExperimentTracker, measure_type2dim
 
 class gradExperimentTracker(categoryExperimentTracker) :
@@ -75,6 +76,6 @@ def post_experiment_test_grad(ti : testInput) -> pd.DataFrame :
     result_df = pd.DataFrame(test_results, columns = df_columns)
     
     # Name the index based on if we measure epochs or otherwise
-    result_df.index.name = ti.measure_type[:-1] # Kill the "s", we view singularly
+    result_df.index.name = singularise(ti.measure_type) # Kill the "s", we view singularly
         
     return result_df    

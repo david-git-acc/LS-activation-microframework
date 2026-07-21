@@ -16,7 +16,7 @@ from support.parsing_helpers import safe_asdict
 from dataclass_objects.config_objects import expConfig
 from dataclass_objects.input_objects import expInput, testInput
 from dataclass_objects.result_objects import experimentResult, activationResults
-from categories.registry import category_registry, categoryExperimentLogger
+from categories.category_registry import category_registry, categoryExperimentLogger
 from networks import ActivationNetwork
 from activations import to_LS
 

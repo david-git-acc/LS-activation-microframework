@@ -61,6 +61,7 @@ class expConfig() :
     df_train : pd.DataFrame
     df_test : pd.DataFrame
     labels : str | list[str]
+    base_network_type : type[ActivationNetwork]
     network_type : type[ActivationNetwork]
     loss : nn.Module
     feature_transforms : tuple[tuple[list[str], Any]]
@@ -111,7 +112,7 @@ class expConfig() :
             self.kf_reducers += (arithmetic_mean, )
         
         # Used so we can access ._structure, .height and .width easily
-        self.dummy = self.network_type(Identity)
+        self.dummy = self.base_network_type(Identity, 1, 2)
                 
     def savename(self , maxlen : int = 10) -> str :
         
@@ -139,7 +140,7 @@ class expConfig() :
         else :
             plus_extra = "_".join([name[0] for name in self.activation_names])
         
-        readable_metadata = f"{self.network_type.__name__}-{plus_extra}"
+        readable_metadata = f"{self.network_type._name}-{plus_extra}"
         
         return "experiments/exp-" + readable_metadata + "-" + hash_monstrosity[:maxlen] 
     
@@ -153,7 +154,7 @@ class expConfig() :
         """
         
         possible_linestyles = ["solid", "dashdot", (0, (3, 1, 1, 1)) ] +  list(mlines.lineStyles.keys())
-        possible_markers = ["8", "^", "d",] + list(mlines.lineMarkers.keys())
+        possible_markers = ["8", "d", "^"] + list(mlines.lineMarkers.keys())
         
         main_params = {
             "save_folder" : self.savename(),

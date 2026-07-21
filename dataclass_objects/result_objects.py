@@ -5,6 +5,7 @@ from typing import Any
 import torch
 
 # CUSTOM
+from support.parsing_helpers import singularise
 from support.processing_helpers import pad_torch_stack
 
 @dataclass
@@ -134,8 +135,7 @@ class activationResults() :
         
         Always outputs a DataFrame, not a Series. Will always be 7 columns, one for each coordinate, even if all columns
         specified. If this behaviour is not desired, consider specific_query().
-        
-
+    
         Returns:
             DataFrame: the desired DataFrame object containing all results after projection.
         """
@@ -167,7 +167,7 @@ class activationResults() :
         """Same as ActivationResults.query(), but returns a single-column Pandas DataFrame. 
         Does not accept NoneType coordinate arguments unlike query(). Unlike query(), will not
         retain other columns in the output DataFrame. 
-            
+        
         Params:
             *coordinates: the 6-coordinates to specify. Does not accept "position" as an argument.
             replace_index: whether to keep the "position" index of the output DataFrame intact or not.
@@ -190,7 +190,7 @@ class activationResults() :
         # May not want to keep "position"
         if replace_index :
             query_result.index = query_result["position"]
-            query_result.index.name = category[:-1] # Remove the "s", e.g "epochs" -> "epoch", "params" -> "param"
+            query_result.index.name = singularise(category) # Remove the "s", e.g "epochs" -> "epoch", "params" -> "param"
 
         # Since all coordinates will be identical, no point in keeping the exact coords
         return query_result[["val"]]

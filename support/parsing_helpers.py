@@ -115,3 +115,13 @@ def safe_dict2params(params : dict[str, Any], func : Callable) -> dict[str, Any]
     sig = inspect.signature(func)
     
     return {k : v for k, v in params.items() if k in set(sig.parameters)}
+
+def singularise(name : str) -> str :
+    
+    if name.endswith("es") :
+        return name[:-2] 
+    
+    elif name.endswith("s") and name[-2] not in {"a", "e", "i", "o", "u"} :
+        return name[:-1]
+    
+    return name

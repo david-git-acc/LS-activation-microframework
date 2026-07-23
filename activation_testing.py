@@ -10,7 +10,7 @@ from rich.progress import Progress
 # CUSTOM
 from support.processing_helpers import (sampling_indices, dfs_settings2tensors, 
                                         get_number_of_features_and_classes)
-from support.config import config
+from support.config import config, set_seed
 from support.torch_reducers import arithmetic_mean
 from support.parsing_helpers import safe_asdict
 from dataclass_objects.config_objects import expConfig
@@ -173,8 +173,57 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
     # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
     return experimentResult(exp_results, metadata = {"kfold_data" : kfold_data})
 
+def multiseed_test_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : ActivationNetwork,
+                       labels : str | list[str], loss : nn.Module = nn.CrossEntropyLoss(),
+                       feature_transforms : tuple[tuple[list[str], Any], ...] = (),
+                       label_transforms : tuple[tuple[list[str], Any], ...] = (),
+                       dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long), 
+                       epochs : int = 500, batch_size : int = -1, max_recorded_samples : int = -1,
+                       categories : tuple[str, ...] = ("grad",), n_testseeds : int = 10) -> experimentResult :
+    
+    """Same as experiment_from_df, but uses multiple different testseeds to repeat the experiment, then averages out
+    the results. For long data (e.g metrics), will use the mode, and for all other data will use the standard NaN-aware mean. 
+    
+    Params:
+        n_testseeds: how many testseeds to run.
+        For all other parameters, please refer to experiment_from_df as they are identical.
 
-def evaluate_activation_results(exp_params : expConfig, exp_result : experimentResult, tester : Callable,
+    Returns:
+        experimentResult: the test data results.
+    """
+    
+    seeds = np.random.randint(42, 2026, n_testseeds).tolist()
+    exp_results = []
+    
+    for seed in seeds :
+        set_seed(seed)
+        test_result = experiment_from_df(df_train, df_test, model, labels, loss, 
+                                         feature_transforms, label_transforms, dtypes,
+                                         epochs, batch_size, max_recorded_samples, categories)
+        exp_results.append(test_result)
+    
+    exp_result = experimentResult(exp_results, metadata = {"seeds" : seeds})
+    averaged_exp_result_dict = {}
+    
+    for result_str, result in exp_result.results.items() :
+        match result.dtype :
+            case torch.long :
+                avg_result = torch.mode(result, dim = -1).values.to(torch.long)
+            case _ :
+                avg_result = torch.nanmean(result, dim = -1)
+        averaged_exp_result_dict[result_str] = avg_result.to(result.dtype)
+        
+    # Assign to both hidden and default results object for consistency
+    exp_result.results = exp_result._results = averaged_exp_result_dict
+    
+    # Side effects not permitted 
+    set_seed(config["seed"])
+    
+    return exp_result
+    
+    
+
+def evaluate_activation_results(xpc : expConfig, exp_result : experimentResult, tester : Callable,
                             typeof_result : tuple[str, ...]) -> pd.DataFrame : 
     
     # Unpack the metadata components from the type of result we have 
@@ -187,33 +236,33 @@ def evaluate_activation_results(exp_params : expConfig, exp_result : experimentR
     
     expected_ndims = len(data.shape)
     if eval_type == "train" :
-        aggfuncs, aggfunc_names = exp_params.kf_reducers, exp_params.kf_reducer_names
+        aggfuncs, aggfunc_names = xpc.kf_reducers, xpc.kf_reducer_names
         expected_ndims -= 1 # We already have kfold dimension so subtract 1 dim to compensate
     else : # No point aggregating over a single fold if it's test data; 0 variance    
-        nameof_arithmetic_mean = exp_params.kf_reducer_names[exp_params.kf_reducers.index(arithmetic_mean)]
+        nameof_arithmetic_mean = xpc.kf_reducer_names[xpc.kf_reducers.index(arithmetic_mean)]
         aggfuncs, aggfunc_names = ((arithmetic_mean,), [nameof_arithmetic_mean])
 
     # Encapsulate into test input dataclass to avoid path dependence; store misc. vitals in metadata
     test_input = testInput(data, 
-                            exp_params.reducers, exp_params.reducer_names, 
+                            xpc.reducers, xpc.reducer_names, 
                             aggfuncs, aggfunc_names, 
                             measure_type = measure_type, 
                             expected_ndims = expected_ndims, 
                             metadata = exp_result.metadata,
-                            xpc = exp_params)
+                            xpc = xpc)
 
     results_df = tester(test_input) 
     return results_df
 
 
-def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> activationResults :
+def complete_activation_test(xpc : expConfig, verbose : bool = False) -> activationResults :
     
     """
     Orchestrator / god function to perform entire experiment, from training to kfold and testing given a set of 
     expConfig. Designed to minimise boilerplate and facilitate ease of use + modularity. 
     
     Params:
-        exp_params: the expConfig dataclass containing all important data about the experiment. 
+        xpc: the expConfig dataclass containing all important data about the experiment. 
         verbose: boolean detailing whether to provide details over current execution cycle.
 
     NOTE: if no category is specified in expConfig, it will use all categories. Remember to add category parameters
@@ -230,10 +279,10 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
     """
     
     # "all" will have been converted into ("all", ) by expConfing's input validation
-    categories = tuple(category_registry.keys()) if exp_params.categories == ("all", ) else exp_params.categories
+    categories = tuple(category_registry.keys()) if xpc.categories == ("all", ) else xpc.categories
     category_params = {cat : category_registry[cat] for cat in categories}
     
-    n_features, n_classes = get_number_of_features_and_classes(exp_params.df_train, exp_params.labels)
+    n_features, n_classes = get_number_of_features_and_classes(xpc.df_train, xpc.labels)
 
     # Add to these incrementally and then concatenate at the end to turn into dataframes.
     total_activation_dfs = {(eval_type, category, measure_type) : [] 
@@ -242,24 +291,24 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
                             for measure_type in category_params[category].measure_types }
     
     with Progress() as progress :
-        work = progress.add_task("Experiment progress:", total = len(exp_params.activations) * len(total_activation_dfs))
+        work = progress.add_task("Experiment progress:", total = len(xpc.activations) * len(total_activation_dfs))
         
-        for activation_index, activation in enumerate( exp_params.activations ) : 
+        for activation_index, activation in enumerate( xpc.activations ) : 
             
-            network = exp_params.network_type(activation, n_inputs = n_features, n_outputs = n_classes)
-            activation_name = exp_params.activation_names[activation_index] 
+            network = xpc.network_type(activation, n_inputs = n_features, n_outputs = n_classes)
+            activation_name = xpc.activation_names[activation_index] 
             
             net_act_str = f"[Network: {network.name}, Activation: {activation.__name__}]"  
             if verbose : progress.console.log(f"Executing configuration: {net_act_str}")
 
             # Pass in params dataclass directly because function signature may become arbitrarily long with more additions
-            r = {"train" : skf_crossval(**safe_asdict(exp_params, skf_crossval), model = network, df = exp_params.df_train),
-                 "test" : experiment_from_df(**safe_asdict(exp_params, experiment_from_df), model = network)}
+            r = {"train" : skf_crossval(**safe_asdict(xpc, skf_crossval), model = network, df = xpc.df_train),
+                 "test" : multiseed_test_from_df(**safe_asdict(xpc, multiseed_test_from_df), model = network)}
 
             for eval_type, category, measure_type in total_activation_dfs:
                 if verbose : progress.console.log(f" -> {eval_type.title()}ing on {category} data over {measure_type}")
                 
-                results_df = evaluate_activation_results(exp_params = exp_params, 
+                results_df = evaluate_activation_results(xpc = xpc, 
                                                      exp_result = r[eval_type], 
                                                      tester = category_params[category].tester, 
                                                      typeof_result = (eval_type, category, measure_type))
@@ -275,7 +324,7 @@ def complete_activation_test(exp_params : expConfig, verbose : bool = False) -> 
     return activationResults(total_activation_dfs)
 
 
-def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> tuple[activationResults, expConfig] :
+def LS_alpha_sensitivity_test(xpc : expConfig, verbose : bool = True) -> tuple[activationResults, expConfig] :
     
     """
     Perform an alpha sensitivity test on an LS-converted activation function. Note that this implicitly assumes that
@@ -285,10 +334,10 @@ def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> 
     
     Creates as many equally spaced alphas as specified in the experiment parameters between 0 and 1 exclusive. Then,
     applies the standard complete activation test orchestrator function. Accepts the function from the 
-    exp_params tuple of activation functions; if there is more than one, takes the first only. 
+    xpc tuple of activation functions; if there is more than one, takes the first only. 
 
     Params:
-        exp_params: the expConfig dataclass; same useage as complete_activation_test.
+        xpc: the expConfig dataclass; same useage as complete_activation_test.
         verbose: boolean detailing whether to provide details over current execution cycle.
         categories: tuple of strings containing which categories (e.g grad, testloss, testpreds) are desired to evaluate.
 
@@ -300,13 +349,13 @@ def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> 
         expConfig: the modified experimentParams for the LS alpha sensitivity test, for future use.
     """
     
-    if len(exp_params.activations) != 1 :
+    if len(xpc.activations) != 1 :
         print(f"Got more than 1 activation for sensitivity test; using first choice. Please select only one.")
     
-    base_activation = exp_params.activations[0] 
+    base_activation = xpc.activations[0] 
     
     # Measuring alpha selection over entire domain - equal spacing for most representative results
-    alphas = np.linspace(0, 1, exp_params.n_alphas)
+    alphas = np.linspace(0, 1, xpc.n_alphas)
     activations = []
     activation_names = []
     
@@ -318,7 +367,7 @@ def LS_alpha_sensitivity_test(exp_params : expConfig, verbose : bool = True) -> 
         activations.append(activation)
         activation_names.append(activation_name)
     
-    new_experiment_params = replace(exp_params, 
+    new_experiment_params = replace(xpc, 
                                     activations = activations,
                                     activation_names = activation_names)
     

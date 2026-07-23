@@ -6,7 +6,7 @@ import torch
 
 # CUSTOM
 from support.parsing_helpers import singularise
-from support.processing_helpers import pad_torch_stack
+from support.processing_helpers import pad_torch_stack, nan_long
 
 @dataclass
 class experimentResult() :
@@ -17,6 +17,7 @@ class experimentResult() :
     
     Params:
         _results: the dictionary of results, where each key is a category and the value is the tensor of results.
+        NOTE: If passing in a list of experimentResults, will apply torch.stack and concatenate on the last dimension.
         results: same as _results, stored for type checking and mypy purposes. No need to pass in any value here.
     """
     _results : dict[str, torch.Tensor] | list[experimentResult] = field(default_factory = dict)
@@ -41,10 +42,11 @@ class experimentResult() :
             
             # Creates the K-fold architecture for the results. Setting dim = -1 sets kfold dim as last one (required)  
             # pad_torch_stack had to be specifically developed for SKF not having equal fold sizes, rest shouldn't need it       
-            dict_results = {category : torch.stack(pad_torch_stack(data), dim = -1) 
+            dict_results = {category : torch.stack(pad_torch_stack(data, 
+                            pad_with = nan_long if data[0].dtype == torch.long else torch.nan), dim = -1) 
                             for category, data in dict_results.items()}
             self.results = dict_results
-            
+        
         else :
             self.results = self._results
 

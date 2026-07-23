@@ -7,6 +7,9 @@ from torch.utils.data import Dataset
 from sklearn.compose import ColumnTransformer
 from typing import Any, Callable
 
+# Used as a NaN equivalent for long data
+nan_long = -99999999
+
 def np2torch(array : np.ndarray, dtype = torch.float32) -> torch.Tensor :
     
     converted = torch.tensor(array, dtype = dtype)
@@ -200,3 +203,4 @@ def dfs_settings2tensors(df_train : pd.DataFrame, df_test : pd.DataFrame,
     Y_train, Y_test = dfs2train_test(df_train_Y, df_test_Y, Y_transformer, dtype = Y_type)
     
     return X_train, X_test, Y_train, Y_test
+

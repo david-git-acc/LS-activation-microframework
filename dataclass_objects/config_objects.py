@@ -72,6 +72,7 @@ class expConfig() :
     lr : float = 0.001
     kfold_k : int = 10
     n_alphas : int = 5
+    n_testseeds : int = 5
     batch_size : int = -1 # full batch
     max_recorded_samples : int = -1 # no limit
     epochs : int = 500
@@ -190,8 +191,12 @@ class expVisual() :
     
     def generate_figure_title(self, eval_type : str, category : str, measure_type : str ) -> str :
         
-        fold_explanation = f", {self.experiment.kfold_k}-fold" if eval_type == "train" else ""
-        title = f"{category2name(category)} {eval_type} data{fold_explanation} results measured over {measure_type}"
+        if eval_type == "train" : 
+            agg_explanation = f", {self.experiment.kfold_k}-fold"
+        else :
+            agg_explanation = f", {self.experiment.n_testseeds}-seed average"
+        
+        title = f"{category2name(category)} {eval_type} data{agg_explanation} results measured over {measure_type}"
         
         return title
     

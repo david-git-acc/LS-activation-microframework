@@ -96,10 +96,7 @@ def import_config(config_saveloc : str = "config.yaml",
     handle_network_mods(config["network_registry"], config)
 
     # Fix seeds for reproducibility
-
-    torch.manual_seed(config["seed"])
-    np.random.seed(config["seed"])
-    random.seed(config["seed"])
+    set_seed(config["seed"])
 
     return config
 
@@ -189,6 +186,13 @@ def handle_network_mods(network_registry : dict[str, type[ActivationNetwork]], c
     
     # Use lower case so user doesn't trip up on exact casing             
     config["network_type"] = network_registry[config["network_type"].lower()]        
+    
+def set_seed(seed : int) -> None :
+    
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    
     
 # Technically, config impacts global state by setting default seed, but given the use-case this is acceptable
 config = import_config("config.yaml", csv_filename = "datasets/extended_flower_morphometrics.csv" ) 

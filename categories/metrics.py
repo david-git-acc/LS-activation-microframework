@@ -5,7 +5,7 @@ import pandas as pd
 ### CUSTOM
 from dataclass_objects.input_objects import expInput, testInput
 from support.config import config
-from support.processing_helpers import dfs_settings2tensors
+from support.processing_helpers import dfs_settings2tensors, nan_long
 from support.parsing_helpers import safe_asdict
 from categories.base_definitions import categoryExperimentTracker, measure_type2dim
 
@@ -20,10 +20,10 @@ class metricsExperimentTracker(categoryExperimentTracker) :
     def __init__(self, xpi : expInput) :
         super().__init__(xpi)
         self._category = "metrics"
-        self._data = torch.full(size = (xpi.n_captures, len(xpi.Y_test_tensor)), fill_value = torch.nan) 
+        self._data = torch.full(size = (xpi.n_captures, len(xpi.Y_test_tensor)), fill_value = nan_long, dtype = torch.long) 
     
     def track(self) -> torch.Tensor :
-        return torch.argmax(self.xpi.anet_model(self.xpi.X_test_tensor), dim = 1).view(-1).detach().cpu()
+        return torch.argmax(self.xpi.anet_model(self.xpi.X_test_tensor), dim = 1).to(torch.long).view(-1).detach().cpu()
     
     def record(self, record_index : int = 0) -> None :
         self._data[record_index, :] = self.track()  
@@ -77,7 +77,7 @@ def post_experiment_test_metrics(ti : testInput) -> pd.DataFrame :
             # The NaN-padding is always the same across all epochs, so we just check the first
             without_nanpadding = ~torch.isnan(testpreds_this_fold[0, :])   
             unpadded_testpreds = testpreds_this_fold[:, without_nanpadding].numpy()
-            
+
             # Forced to iterate manually because metrics are not vectorisable
             result = torch.tensor([metric(y, y_hat) for y_hat in unpadded_testpreds])
             result_dict[metric_name][:, k] = result

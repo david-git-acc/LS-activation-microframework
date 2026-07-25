@@ -2,6 +2,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
 
+### CUSTOM
+from support.parsing_helpers import create_path
+
 def get_n_colours(n : int, cmap : str = "viridis" ) -> list :
     
     cmap_function = plt.get_cmap(cmap)
@@ -36,14 +39,16 @@ def is_empty_axis(ax) -> bool :
     
     return not (ax.lines or ax.collections or ax.patches)
 
-def df2csv(df : pd.DataFrame, filename : str) -> None :
+def df2csv(df : pd.DataFrame, filename : str, foldername : str = "") -> None :
     
     original_view = df.columns.copy()
     
     # Save as multiindex so pd won't register tuple column names as simple strings, which would destroy information
-    df.columns = pd.MultiIndex.from_tuples([col if isinstance(col, tuple) else (col, ) for col in df.columns])
-    df.to_csv(filename)
+    if any(isinstance(col, tuple) for col in df.columns) :
+        df.columns = pd.MultiIndex.from_tuples([col if isinstance(col, tuple) else (col, ) for col in df.columns])
+    create_path(foldername)
+    df.to_csv(f"{foldername}{"/" if foldername else ""}{filename}")
     
     # Prevent side effects
     df.columns = original_view
-    
+

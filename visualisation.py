@@ -111,8 +111,8 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
     eval_type, category, measure_type = xvp_triple
     
     # Delegate main work to dataclass to avoid unnecessary code bloat here
-    figure_data = xvp.generate_figure_params(*xvp_triple)
-    if save2csv : df2csv(results_df, f"{xvp.save_folder}/csvs/{figure_data['savename']}.csv")
+    figure_data = xvp.generate_figure_params(*xvp_triple, apply_symlog = category != "metrics")
+    if save2csv : df2csv(results_df, f"{figure_data['savename']}.csv", f"{xvp.save_folder}/csvs" )
     
     # len(all_tests) should always be <= nrows * ncols by way of construction
     fig, axes = plt.subplots(
@@ -155,7 +155,7 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
                 
             plot_params = xvp.generate_plot_params(activation_name, category, kf_reducer, figure_data["plot_type"])
             # Must not apply symlog on metrics since metrics naturally enforce bounding, and could distort results
-            plot_data(x, y, ax, plot_params, apply_symlog = False if category == "metrics" else True)
+            plot_data(x, y, ax, plot_params, apply_symlog = figure_data["apply_symlog"])
         
     for ax in axes : 
         post_plotting_axes_ops(ax)
@@ -168,8 +168,7 @@ def plot_actexp_figure_data(xvp : expVisual, results_df : pd.DataFrame,
     plt.close(fig)
     
     
-def plot_activation_tests(act_results : activationResults, xp : expConfig,
-                          verbose : bool = True) -> None :
+def plot_activation_tests(act_results : activationResults, xp : expConfig, verbose : bool = False) -> None :
 
     """
     Plot all figures from the total results dataframe, given expConfig used to generate said results.
@@ -203,3 +202,48 @@ def plot_activation_tests(act_results : activationResults, xp : expConfig,
                                     verbose = verbose)
             
             progress.advance(work, 1)
+            
+            
+def plot_time2threshold_test(thresh_df : pd.DataFrame, exp_vis : expVisual, 
+                              eval_type : str, category_name : str, reducer_name : str, save2csv : bool = True) -> None :
+    
+    """Plot the results from a time-to-threshold test with the specified parameters.
+    
+    Params:
+        thresh_df: the DataFrame that stores the results; get this from time2threshold_test(). 
+        exp_vis: the visual parameters dataclass for the experiment. If you have the object, use xp.exp_vis_params().
+        eval_type: whether the data is train or test data.
+        category_name: the name of the category type, e.g "testloss" or "aouts".
+        reducer_name: the aggregator function that marginalises all other dimensions into the epoch dimension.
+        save2csv: whether to save the data as a CSV or not.
+    """
+    
+    print(f"Plotting time-to-threshold {eval_type} data for category {category_name} and reducer type {reducer_name}...")
+    filename = f"threshtest-{eval_type}data-{category_name}-{reducer_name}"
+    if save2csv : df2csv(thresh_df, filename + ".csv", f"{exp_vis.save_folder}/csvs/threshold_tests")
+    
+    fig_params = exp_vis.generate_figure_params(eval_type, category_name, "epochs", apply_symlog = False)
+    ax_params = exp_vis.generate_axes_params(reducer_name, fig_params )
+    fig, ax = plt.subplots(nrows = 1, ncols = 1, figsize = fig_params["figsize"], squeeze = True)
+    
+    # Matplotlib normally puts lowest x values on the left and highest ones on the right; if descending, need to fix this
+    ascending = thresh_df.index[-1] >= thresh_df.index[0]
+    xaxis = thresh_df.index.to_numpy()
+    for activation_name in thresh_df.columns.tolist() :
+
+        plot_params = exp_vis.generate_plot_params(activation_name, category_name, "mean", "curve")
+        dataseries = thresh_df[activation_name]
+        plot_data(xaxis, dataseries, ax, plot_params, apply_symlog = fig_params["apply_symlog"])
+    
+    if not ascending : ax.invert_xaxis() # Fix for non-ascending data
+    ax.grid(ax_params["grid"])
+    ax.set_xlabel(f"{category_name.title()} {reducer_name} threshold value", fontsize = "x-large")
+    ax.set_ylabel("# epochs to reach threshold", fontsize = "x-large")
+    plt.title(f"Time-to-threshold (TTH) test: {fig_params['title']} ", fontsize = "xx-large")
+    post_plotting_axes_ops(ax)
+    
+    fig.tight_layout()
+    create_path(f"{exp_vis.save_folder}/figures/threshold_tests")
+    fig.savefig(f"{exp_vis.save_folder}/figures/threshold_tests/{filename}.png") # do NOT use plt.savefig
+    plt.close(fig)
+    

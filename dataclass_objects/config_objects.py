@@ -201,7 +201,7 @@ class expVisual() :
         return title
     
     def generate_figure_params(self, eval_type : str, category : str, measure_type : str,
-                               plots_per_row : int = 2) -> dict[str, Any] :
+                               plots_per_row : int = 2, apply_symlog : bool = True) -> dict[str, Any] :
         
         """
         Generate parameters dictionary for a given figure and triple (eval_type, category, measure_type).
@@ -227,10 +227,11 @@ class expVisual() :
         plot_type = determine_plot_type(eval_type, category, measure_type)
         
         # All curves get symlog treatment for numerical stability
-        if plot_type == "curve" and category != "metrics" : title += " (symlog)"
+        if apply_symlog : title += " (symlog)"
         
         fig_params = {
             "savename" : f"{category}-{measure_type}_on_{eval_type}",
+            "apply_symlog" : apply_symlog,
             "figsize" : (1920/96, 1080/96),
             "eval_type" : eval_type,
             "category" : category,

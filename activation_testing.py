@@ -97,10 +97,10 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
         transformer to apply for those columns.
         label_transforms: same as feature_transforms but for label columns. Note that for either case, columns not specified 
         will be left untransformed.
-        dtypes: 2-tuple containing data types of features and of labels after transformation. Only supports one type per group.
+        dtypes: 2-tuple containing data types of features and of labels after transformation. Supports one type per group.
         epochs: number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
-        batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all training examples per step)
-        max_recorded_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all). 
+        batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all).
+        max_recorded_samples: maximum number of training steps captured in experimentResult. Defaults to -1 (all).
         
     Returns:
         experimentResult: stores all the captured data for future use
@@ -133,15 +133,15 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
         labels: subset of columns to be predicted on.
         kfold_k: number of folds to perform stratified KFold on.
         epochs: number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
-        feature_transforms: n-tuple of 2-tuples, where the former is the list of columns to transform and the latter is the 
-        transformer to apply for those columns.
-        label_transforms: same as feature_transforms but for label columns. Note that for either case, columns not specified 
-        will be left untransformed.
-        dtypes: 2-tuple containing data types of features and of labels after transformation. Only supports one type per group.  
-        batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all training examples per step)
-        max_recorded_samples: maximum number of training steps to be recorded and captured in experimentResult. Defaults to -1 (all).
+        feature_transforms: n-tuple of 2-tuples, where the former is the list of columns to transform and the latter
+        is the transformer to apply for those columns.
+        label_transforms: same as feature_transforms but for label columns. Note that for either case, columns not 
+        specified will be left untransformed.
+        dtypes: 2-tuple containing data types of features and of labels after transformation. Supports one type per group.  
+        batch_size: number of training examples used per gradient descent step. Defaults to -1 (all).
+        max_recorded_samples: maximum number of training steps captured in experimentResult. Defaults to -1 (all).
 
-    NOTE: For any future use or modification, note that the k-fold dimension must *always* be the last one, or the program breaks.
+    NOTE: For future use, note that the k-fold dimension must *always* be the last one, or the program breaks.
 
     Returns:
         experimentResult: stores all folds and captured data for use. 
@@ -202,12 +202,13 @@ def multiseed_test_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, mode
                                          epochs, batch_size, max_recorded_samples, categories)
         exp_results.append(test_result)
     
+    # Combining results together via keyname already covered with experimentResult constructor, re-use here
     exp_result = experimentResult(exp_results, metadata = {"seeds" : seeds})
     averaged_exp_result_dict = {}
     
     for result_str, result in exp_result.results.items() :
         match result.dtype :
-            case torch.long :
+            case torch.long : # Using mean on continuous data could output errors, e.g 1 and 3 --> prediction 2
                 avg_result = torch.mode(result, dim = -1).values.to(torch.long)
             case _ :
                 avg_result = torch.nanmean(result, dim = -1)
@@ -367,8 +368,109 @@ def LS_alpha_sensitivity_test(xpc : expConfig, verbose : bool = True) -> tuple[a
         activations.append(activation)
         activation_names.append(activation_name)
     
-    new_experiment_params = replace(xpc, 
-                                    activations = activations,
-                                    activation_names = activation_names)
+    new_xpc = replace(xpc, activations = activations, activation_names = activation_names)
+    return complete_activation_test(new_xpc, verbose = verbose), new_xpc
+
+
+def time2threshold_test(aresults : activationResults, eval_type : str, category : str, reducer : str, 
+                   nthresholds : int = 50, ascending : bool = True) -> pd.DataFrame :
     
-    return complete_activation_test(new_experiment_params, verbose = verbose), new_experiment_params
+    """Compute the time-to-threshold test for all measured activations using a given category and reducer type, given 
+    test results. This test measures the number of epochs required to reach each threshold in the category over a given set 
+    of thresholds, calculated dynamically via the minimum and maximum values for that category. The thresholds represent the
+    x-axis (independent variable), and the number of epochs represents the y-axis (dependent measured variable). 
+    
+    Thresholds are calculated as uniform separation points between the minimum and maximum threshold values, using 
+    np.linspace to compute boundaries. This always uses epochs, not any other form of measurement. This means it works 
+    for any category, since all categories are required to at least track the "epochs" measure type. 
+    
+    Params:
+        aresults: the ActivationResults object acquired from complete_activation_test or a variant. 
+        category: the category of data to compare thresholds for, e.g test loss or activation gradients.
+        reducer: the aggregator function used to collapse all other dimensions into the epoch dimension. Usually "mean".
+        nthresholds: how many threshold data points to use in calculation and thus form the x-axis. Defaults to 50.
+        ascending: whether we want thresholds to be exceeded, or subceeded. E.g for test loss we want lower values.
+
+    Returns:
+        pd.DataFrame: the resulting threshold DataFrame containing epoch convergence data for each activation (column-format).
+    """
+    
+    # Maps each position to its corresponding epoch, since there are far more epochs than recorded epochs (positions)
+    positions2epochs = np.asarray(sampling_indices(config["epochs"], config["max_recorded_samples"]) + [np.nan])
+    
+    # Already starts in this order with query structure, but this guarantees it as an assumption
+    table = aresults.query(eval_type, category, "epochs", reducer, "mean")[["activation", "position", "val"]]
+    table.sort_values(by = ["activation", "position"], inplace = True, axis = 0) 
+    
+    avs = table["val"]
+    bounds = (avs.min(), avs.max()) if ascending else (avs.max(), avs.min())
+    thresholds = np.linspace(*bounds, nthresholds)
+    
+    # This makes every activation its own column which is vital for plotting later and for rest of computation
+    # It will never produce NaN values because every activation has exactly the same number of epochs as every other
+    activ_table = table.pivot(index = "position", columns = "activation", values = "val")
+        
+    # Shape (n_positions, n_activations, n_thresholds), tracks when first exceeded each threshold
+    if ascending :
+        compared2thresh = activ_table.to_numpy()[:, :, None] >= thresholds[None, None, :] 
+    else : 
+        compared2thresh = activ_table.to_numpy()[:, :, None] <= thresholds[None, None, :] 
+    
+    # Argmax will grab the integer index of the very first epoch to exceed/subceed the given threshold
+    first_epochs2exceed = np.argmax(compared2thresh, axis = 0) # Now of shape (n_activations, n_thresholds)
+    
+    # If we don't update cases where it never passed a thresh, it will give a score of 0 which gives false impression
+    never_exceeded = ~np.any(compared2thresh, axis = 0) 
+    first_epochs2exceed[never_exceeded] = -1 #  Give it -1 index, which maps to nan in epoch_index_nmaes
+
+    # Converts epoch indices to epoch names (although the same in 99.9% of cases). One bin reserved for never-reachers
+    epoch_index_names = np.array(activ_table.index.tolist() + [-1])
+    
+    # In theory could just use first_epochs2exceed.T since it's already an integer array, but this is more robust
+    # Double indexing; map position indices to true positions, then map those positions to the real epochs
+    final_thresh_data = positions2epochs[epoch_index_names[first_epochs2exceed].T] 
+    thresh_df = pd.DataFrame(data = final_thresh_data, index = thresholds, columns = activ_table.columns)
+    thresh_df.index.name = "threshold"
+        
+    return thresh_df
+
+
+
+def complete_time2threshold_test(aresults : activationResults, 
+                                 nthresholds : int = 50, ascending : bool = True) -> dict[tuple[str, str, str], pd.DataFrame] :
+    
+    """Same as time2threshold_test, but iterates over all valid triples of (eval_type, category, reducer).
+    
+    Params:
+        aresults: the activation results DataFrame to grab data from.
+        nthresholds: how many thresholds in the resulting DataFrames.
+        ascending: whether we want to exceed thresholds or subceed them. For granular control, please use time2threshold_test.
+
+    Returns:
+        dict[tuple[str, str, str], pd.DataFrame]: the dictionary mapping triples of (eval_type, category, reducer) to 
+        threshold dataframes for each activation. See time2threshold_test for more documentation on that.
+    """
+    
+    time2threshold_dict = {}
+    with Progress() as progress : # Quite a few results so need to track for user satisfaction
+        thresh_work = progress.add_task("Threshold experiment progress:" , total = len(aresults.results) )
+        
+        for eval_type, category, measure_type in aresults.results.keys() :
+            triple_format = (eval_type, category, measure_type)   
+            
+            if measure_type != "epochs" : 
+                progress.console.log(f"Result class {triple_format} not of measure type \"epochs\". Skipping.")
+                progress.advance(thresh_work, 1)    
+                continue # We never do time2threshold over any measure type other than epochs
+            
+            progress.console.log(f"Now calculating thresh data for result {triple_format}")
+            reducers = [col[0] for col in aresults.results[triple_format].columns # Not all cols are tuples
+                        if isinstance(col, tuple) and col[1] == "mean" ] # kf_reducer always mean, others do not make sense
+            
+            for reducer in reducers :
+                thresh_df = time2threshold_test(aresults, eval_type, category, reducer, nthresholds, ascending)
+                time2threshold_dict[(eval_type, category, reducer)] = thresh_df
+            
+            progress.advance(thresh_work, 1)    
+
+    return time2threshold_dict

@@ -25,12 +25,13 @@ def determine_plot_type(eval_type, category, measure_type) -> str :
 def category2name(category : str) -> str :
     
     mapping = {
-        "grad" : "gradient",
+        "grad" : "first-derivative",
         "agrad" : "activation gradient", 
         "testloss" : "test loss",
         "testpreds" : "test prediction",
         "aouts" : "activation output",
-        "metrics" : "evaluation metric"
+        "metrics" : "evaluation metric",
+        "ls" : "LS alpha value",
     }
     
     return mapping.get(category, category).title()

@@ -196,3 +196,10 @@ class activationResults() :
 
         # Since all coordinates will be identical, no point in keeping the exact coords
         return query_result[["val"]]
+
+    def compare(self, A : dict[str, str], B : dict[str, str], measure_type : str = "epochs") -> None :
+        
+        query_A = self.query(**A)
+        query_B = self.query(**B)
+        
+        

@@ -203,6 +203,34 @@ def plot_activation_tests(act_results : activationResults, xp : expConfig, verbo
             
             progress.advance(work, 1)
             
+
+def plot_time2threshold_tests(thresh_results : dict[tuple[str, str, str], pd.DataFrame], xp : expConfig, 
+                              save2csv : bool = True) -> None :
+    
+    """Generates every possible valid plot of time-to-threshold data from a thresh_results dictionary, given expConfig
+    used to generate those results. 
+    
+    Params:
+        thresh_results: the dictionary mapping (eval_type, category_type, reducer_type) to a results DataFrame.
+        xp: the original expConfig dataclass used to generate those results.
+        save2csv: whether to save the results to CSV files or not.
+    """
+    
+    print("Visualising threshold result data...")
+    exp_vis = xp.exp_vis_params()
+    create_path(f"{exp_vis.save_folder}/figures/threshold_tests")
+    create_path(f"{exp_vis.save_folder}/csvs/threshold_tests")
+
+    with Progress() as progress : 
+        work = progress.add_task("Threshold visualisation progress:", total = len(thresh_results))
+            
+        for (eval_type, cat, red), thresh_df in thresh_results.items() :
+            
+            progress.console.log(f" -> Visualising {eval_type} threshold results on {cat} data with reducer {red}.")
+            
+            plot_time2threshold_test(thresh_df, exp_vis, eval_type, cat, red, save2csv)
+            progress.advance(work, 1)
+                
             
 def plot_time2threshold_test(thresh_df : pd.DataFrame, exp_vis : expVisual, 
                               eval_type : str, category_name : str, reducer_name : str, save2csv : bool = True) -> None :
@@ -244,6 +272,6 @@ def plot_time2threshold_test(thresh_df : pd.DataFrame, exp_vis : expVisual,
     
     fig.tight_layout()
     create_path(f"{exp_vis.save_folder}/figures/threshold_tests")
-    fig.savefig(f"{exp_vis.save_folder}/figures/threshold_tests/{filename}.png") # do NOT use plt.savefig
+    fig.savefig(f"{exp_vis.save_folder}/figures/threshold_tests/{filename}.pdf") # do NOT use plt.savefig
     plt.close(fig)
     

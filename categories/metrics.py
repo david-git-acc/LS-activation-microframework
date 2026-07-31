@@ -45,19 +45,11 @@ def post_experiment_test_metrics(ti : testInput) -> pd.DataFrame :
     # We need an experiment reference so we can identify which data to compare to
     if ti.xpc is None :
         raise ValueError("Metrics category requires a parent expConfig reference (xpc) in testInput dataclass")
-    
-    kfold_data = ti.metadata.get("kfold_data", None)
-    if kfold_data is None : # If it's test data, then we need to use test data as data source
-        processed_kf_data = [dfs_settings2tensors(**safe_asdict(ti.xpc, dfs_settings2tensors), 
-                                              dtypes = (ti.xpc.features_dtype, ti.xpc.labels_dtype))] 
-    else :
-        # We have to use the train and test data we got, same as before.
-        processed_kf_data = [dfs_settings2tensors(train_df, test_df, ti.xpc.feature_transforms, ti.xpc.label_transforms,
-                                                  ti.xpc.labels, (ti.xpc.features_dtype, ti.xpc.labels_dtype)) 
-                                                  for train_df, test_df in kfold_data]
+    elif "kfold_data" not in ti.metadata : 
+        raise ValueError("Test input metadata should have a kfold_data attribute if you want to record metrics over data")
     
     # Ground truths are Y test, which will be the 4th and final element of the processing
-    ground_truths = [Y_test.numpy() for X_train, X_test, Y_train, Y_test in processed_kf_data ]
+    ground_truths = [Y_test.numpy() for X_train, X_test, Y_train, Y_test in ti.metadata["kfold_data"] ]
     
     nepochs = ti.X.shape[measure_type2dim("epochs")]
     nfolds = ti.X.shape[-1]
@@ -72,11 +64,10 @@ def post_experiment_test_metrics(ti : testInput) -> pd.DataFrame :
             
             # 1D array containing true sizes, without padding of the correct values for given testpreds
             y = ground_truths[k]
-            testpreds_this_fold = ti.X[:, :, k] # Must be unpadded
+            testpreds_this_fold = ti.X[:, :, k] # Now of shape (n_epochs, n_testsamples)
             
-            # The NaN-padding is always the same across all epochs, so we just check the first
-            without_nanpadding = ~torch.isnan(testpreds_this_fold[0, :])   
-            unpadded_testpreds = testpreds_this_fold[:, without_nanpadding].numpy()
+            # Number of valid samples is len(y), since it always gives the exact number of groundtruths and therefore preds
+            unpadded_testpreds = testpreds_this_fold[:, :len(y)].numpy()
 
             # Forced to iterate manually because metrics are not vectorisable
             result = torch.tensor([metric(y, y_hat) for y_hat in unpadded_testpreds])
@@ -93,7 +84,7 @@ def post_experiment_test_metrics(ti : testInput) -> pd.DataFrame :
     result_df = pd.DataFrame(result_dict)
     result_df.columns = pd.Index(result_df.columns) # Multiindex will break the code later
     
-    if (diff := len(set(result_df.columns)) - len(result_df.columns)) != 0 :    
+    if (diff := len(result_df.columns) - len(set(result_df.columns)) ) != 0 :    
         raise ValueError(f"{diff} duplicate df columns detected. Please check eval_metrics and kf_reducers")
     
     # Name the index based on if we measure epochs or otherwise

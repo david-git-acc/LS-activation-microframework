@@ -1,8 +1,8 @@
 epochs: 500
 test_size: 0.2
 seed: 42
-n_testseeds: 1
-kfold_k: 2
+n_testseeds: 3
+kfold_k: 3
 lr: 0.005
 batch_size: -1
 max_recorded_samples: 56
@@ -50,16 +50,17 @@ categories:
   - metrics
   - agrad
   - aouts
+  - ls
 
 activation_mods:
   Tanh:
-    LS:
+     LS:
       alpha: 0.25
       learnable: true
   IPLo:
     LS:
       alpha: 0.20
-      learnable: true
+      learnable: false
 
 network_mods:
   diamond:

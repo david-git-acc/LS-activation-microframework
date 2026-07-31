@@ -30,8 +30,8 @@ class categoryExperimentTracker(ABC) :
     
     def __init__(self, xpi : expInput) :
         self.xpi = xpi
-        self._category = "placeholder"
-        self._data = torch.Tensor([])
+        self._category : str = "placeholder"
+        self._data : torch.Tensor = torch.tensor([])
 
     @property
     def category(self) -> str :
@@ -51,7 +51,7 @@ class categoryExperimentTracker(ABC) :
             The torch Tensor containing all the recorded data.
         """
         
-        if torch.isnan(self._data).all() :
+        if self._data.numel() == 0 :
             raise ValueError(f"No data attribute set. Please define a self._data for tracker {self.__class__.__name__}")
         return self._data
     
@@ -80,6 +80,19 @@ def is_ordinal(measure_type : str) -> bool :
     return measure_type in ordinal_measure_types
 
 def measure_type2dim(name : str) -> int :
+    
+    """Convert a measure type to its corresponding integer dimension for a torch Tensor.
+    Because PyTorch does not have full support for named tensors, we assign each way to measure 
+    a tensor (e.g epochs, layers, test_samples) to a dimension index in the tensor, depending on
+    the category of data. Therefore, multiple measure types can map to the same dimension, since they
+    will operate on different category tensors. 
+    
+    Params:
+        name: the name of the measure type.
+
+    Returns:
+        int: dimension index of the measure type within the tensor.
+    """
     
     mapping = {
         "epochs" : 0,

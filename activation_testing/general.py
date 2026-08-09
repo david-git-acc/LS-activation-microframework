@@ -11,12 +11,12 @@ from support.processing_helpers import (sampling_indices, dfs_settings2tensors,
 from support.config import config
 from support.parsing_helpers import safe_asdict
 from dataclass_objects.config_objects import expConfig
-from dataclass_objects.result_objects import activationResults
+from dataclass_objects.result_objects import ActivationResults
 from categories.category_registry import category_registry
 from activations import to_LS
 from activation_testing.internal import multiseed_test_from_df, skf_crossval, evaluate_activation_results
 
-def complete_activation_test(xpc : expConfig, verbose : bool = False) -> activationResults :
+def complete_activation_test(xpc : expConfig, verbose : bool = False) -> ActivationResults :
     
     """
     Orchestrator / god function to perform entire experiment, from training to kfold and testing given a set of 
@@ -81,11 +81,11 @@ def complete_activation_test(xpc : expConfig, verbose : bool = False) -> activat
     # Only concat at the end for speed
     total_activation_dfs = {df_type : pd.concat(df, axis = 0) for df_type, df in total_activation_dfs.items()}
     
-    # Wrap in the activationResults dataclass for more flexibility later
-    return activationResults(total_activation_dfs)
+    # Wrap in the ActivationResults dataclass for more flexibility later
+    return ActivationResults(total_activation_dfs)
 
 
-def LS_alpha_sensitivity_test(xpc : expConfig, verbose : bool = True) -> tuple[activationResults, expConfig] :
+def LS_alpha_sensitivity_test(xpc : expConfig, verbose : bool = True) -> tuple[ActivationResults, expConfig] :
     
     """
     Perform an alpha sensitivity test on an LS-converted activation function. Note that this implicitly assumes that
@@ -132,8 +132,8 @@ def LS_alpha_sensitivity_test(xpc : expConfig, verbose : bool = True) -> tuple[a
     return complete_activation_test(new_xpc, verbose = verbose), new_xpc
 
 
-def time2threshold_test(aresults : activationResults, eval_type : str, category : str, reducer : str, 
-                   nthresholds : int = 50, ascending : bool = True) -> pd.DataFrame :
+def time2threshold_test(aresults : ActivationResults, eval_type : str, category : str, reducer : str, 
+                        nthresholds : int = 50) -> pd.DataFrame :
     
     """Compute the time-to-threshold test for all measured activations using a given category and reducer type, given 
     test results. This test measures the number of epochs required to reach each threshold in the category over a given set 
@@ -157,9 +157,10 @@ def time2threshold_test(aresults : activationResults, eval_type : str, category 
     
     # Maps each position to its corresponding epoch, since there are far more epochs than recorded epochs (positions)
     positions2epochs = np.asarray(sampling_indices(config["epochs"], config["max_recorded_samples"]) + [np.nan])
+    ascending = category_registry[category].should_increase # Check if we want values to go up or down
     
     # Already starts in this order with query structure, but this guarantees it as an assumption
-    table = aresults.query(eval_type, category, "epochs", reducer, "mean")[["activation", "position", "val"]]
+    table = aresults.select(eval_type, category, "epochs", reducer, "mean")[["activation", "position", "val"]]
     table.sort_values(by = ["activation", "position"], inplace = True, axis = 0) 
     
     avs = table["val"]
@@ -196,8 +197,8 @@ def time2threshold_test(aresults : activationResults, eval_type : str, category 
 
 
 
-def complete_time2threshold_test(aresults : activationResults, 
-                                 nthresholds : int = 50, ascending : bool = True) -> dict[tuple[str, str, str], pd.DataFrame] :
+def complete_time2threshold_test(aresults : ActivationResults, 
+                                 nthresholds : int = 50) -> dict[tuple[str, str, str], pd.DataFrame] :
     
     """Same as time2threshold_test, but iterates over all valid triples of (eval_type, category, reducer).
     
@@ -228,7 +229,7 @@ def complete_time2threshold_test(aresults : activationResults,
                         if isinstance(col, tuple) and col[1] == "mean" ] # kf_reducer always mean, others do not make sense
             
             for reducer in reducers :
-                thresh_df = time2threshold_test(aresults, eval_type, category, reducer, nthresholds, ascending)
+                thresh_df = time2threshold_test(aresults, eval_type, category, reducer, nthresholds)
                 time2threshold_dict[(eval_type, category, reducer)] = thresh_df
             
             progress.advance(thresh_work, 1)    

@@ -1,8 +1,8 @@
 epochs: 500
 test_size: 0.2
 seed: 42
-n_testseeds: 3
-kfold_k: 3
+n_testseeds: 2
+kfold_k: 2
 lr: 0.005
 batch_size: -1
 max_recorded_samples: 56
@@ -24,7 +24,6 @@ labels:
 
 activations: 
   - Tanh
-  - IPLo
   - ReLU
 
 eval_metrics: 

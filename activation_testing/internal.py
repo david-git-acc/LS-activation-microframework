@@ -16,15 +16,15 @@ from support.torch_reducers import arithmetic_mean
 from support.parsing_helpers import safe_asdict
 from dataclass_objects.config_objects import expConfig
 from dataclass_objects.input_objects import expInput, testInput
-from dataclass_objects.result_objects import experimentResult
+from dataclass_objects.result_objects import ExperimentResult
 from categories.category_registry import categoryExperimentLogger
 from networks import ActivationNetwork
 
-def experiment(xpi : expInput) -> experimentResult : 
+def experiment(xpi : expInput) -> ExperimentResult : 
     
     """
     Main experiment code for the project. Takes in tensors, model, loss, and metadata and returns result as a
-    simple experimentResult dataclass for ease of use. Ideal for passing in expConfig dataclass as input.
+    simple ExperimentResult dataclass for ease of use. Ideal for passing in expConfig dataclass as input.
     
     This is the main driver function for multiple experiment classes; please be careful when 
     modifying or removing functionality.
@@ -34,7 +34,7 @@ def experiment(xpi : expInput) -> experimentResult :
         device_thresh: number of samples before swapping to GPU
         
     Returns:
-        experimentResult : stores all the captured data for future use.
+        ExperimentResult : stores all the captured data for future use.
     """
     
     xpi.save_state()
@@ -80,7 +80,7 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
                        label_transforms : tuple[tuple[list[str], Any], ...] = (),
                        dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long), 
                        epochs : int = 500, batch_size : int = -1, max_recorded_samples : int = -1,
-                       categories : tuple[str, ...] = ("grad",)) -> experimentResult :
+                       categories : tuple[str, ...] = ("grad",)) -> ExperimentResult :
     
     """
     Same as experiment() but taken directly from the dataframe to minimise boilerplate code. Also excellent for 
@@ -99,10 +99,10 @@ def experiment_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : 
         dtypes: 2-tuple containing data types of features and of labels after transformation. Supports one type per group.
         epochs: number of complete sweeps of X_train_tensor and Y_train_tensor to perform to train the model.
         batch_size: number of training examples to use per gradient descent step. Defaults to -1 (all).
-        max_recorded_samples: maximum number of training steps captured in experimentResult. Defaults to -1 (all).
+        max_recorded_samples: maximum number of training steps captured in ExperimentResult. Defaults to -1 (all).
         
     Returns:
-        experimentResult: stores all the captured data for future use
+        ExperimentResult: stores all the captured data for future use
     """
     
     X_train, X_test, Y_train, Y_test = dfs_settings2tensors(df_train, df_test, 
@@ -125,7 +125,7 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
                 dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long),
                 kfold_k : int = 10, epochs : int = 500, 
                 batch_size : int = -1, max_recorded_samples : int = -1,
-                categories : tuple[str, ...] = ("grad",)) -> experimentResult :
+                categories : tuple[str, ...] = ("grad",)) -> ExperimentResult :
     
     """
     Perform Stratified K-Fold (SKF) cross-validation on a dataframe. Highly compatible with 
@@ -143,12 +143,12 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
         specified will be left untransformed.
         dtypes: 2-tuple containing data types of features and of labels after transformation. Supports one type per group.  
         batch_size: number of training examples used per gradient descent step. Defaults to -1 (all).
-        max_recorded_samples: maximum number of training steps captured in experimentResult. Defaults to -1 (all).
+        max_recorded_samples: maximum number of training steps captured in ExperimentResult. Defaults to -1 (all).
 
     NOTE: For future use, note that the k-fold dimension must *always* be the last one, or the program breaks.
 
     Returns:
-        experimentResult: stores all folds and captured data for use. 
+        ExperimentResult: stores all folds and captured data for use. 
     """
     
     skf = StratifiedKFold(n_splits = kfold_k, random_state = config["seed"], shuffle = True)
@@ -175,7 +175,7 @@ def skf_crossval(df : pd.DataFrame, model : ActivationNetwork, labels : str | li
         kfold_data.append((data["X_train"], data["X_test"], data["Y_train"], data["Y_test"]))
 
     # gms = 3D (epochs, parameters, folds), kfl = 2D (epochs, folds), kfold_tps = 3D (epochs, n_test, folds)
-    return experimentResult(exp_results, metadata = {"kfold_data" : kfold_data})
+    return ExperimentResult(exp_results, metadata = {"kfold_data" : kfold_data})
 
 def multiseed_test_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, model : ActivationNetwork,
                        labels : str | list[str], loss : nn.Module = nn.CrossEntropyLoss(),
@@ -183,7 +183,7 @@ def multiseed_test_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, mode
                        label_transforms : tuple[tuple[list[str], Any], ...] = (),
                        dtypes : tuple[torch.dtype, torch.dtype] = (torch.float32, torch.long), 
                        epochs : int = 500, batch_size : int = -1, max_recorded_samples : int = -1,
-                       categories : tuple[str, ...] = ("grad",), n_testseeds : int = 10) -> experimentResult :
+                       categories : tuple[str, ...] = ("grad",), n_testseeds : int = 10) -> ExperimentResult :
     
     """Same as experiment_from_df, but uses multiple different testseeds to repeat the experiment, then averages out
     the results. For long data (e.g metrics), will use the mode, and for all other data will use the standard NaN-aware mean. 
@@ -193,7 +193,7 @@ def multiseed_test_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, mode
         For all other parameters, please refer to experiment_from_df as they are identical.
 
     Returns:
-        experimentResult: the test data results.
+        ExperimentResult: the test data results.
     """
     
     if n_testseeds <= 0 : 
@@ -212,8 +212,8 @@ def multiseed_test_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, mode
         test_result = experiment(exp_input_object)
         exp_results.append(test_result)
     
-    # Combining results together via keyname already covered with experimentResult constructor, re-use here
-    exp_result = experimentResult(exp_results, metadata = {"seeds" : seeds, "kfold_data" : [traintest_data]})
+    # Combining results together via keyname already covered with ExperimentResult constructor, re-use here
+    exp_result = ExperimentResult(exp_results, metadata = {"seeds" : seeds, "kfold_data" : [traintest_data]})
     averaged_exp_result_dict = {} # Wrap the train, test data in list and call it kfold to avoid branching in metrics.py
     
     # This part aggregates the extra final dimension of seed results, which otherwise would be treated as kfold dim
@@ -235,7 +235,7 @@ def multiseed_test_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, mode
     
     
 
-def evaluate_activation_results(xpc : expConfig, exp_result : experimentResult, tester : Callable,
+def evaluate_activation_results(xpc : expConfig, exp_result : ExperimentResult, tester : Callable,
                             typeof_result : tuple[str, ...]) -> pd.DataFrame : 
     
     # Unpack the metadata components from the type of result we have 
@@ -244,7 +244,7 @@ def evaluate_activation_results(xpc : expConfig, exp_result : experimentResult, 
     # Get the correct category params dataclass object, then get the data to evaluate - either train or test
     data = exp_result.results[category]
     # r[eval_type] gets the right object from r ("train" vs "test"), then select the right data 
-    # from the experimentResult r.results, which is a dictionary of categories to data tensors 
+    # from the ExperimentResult r.results, which is a dictionary of categories to data tensors 
     
     expected_ndims = len(data.shape)
     if eval_type == "train" :

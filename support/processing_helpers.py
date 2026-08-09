@@ -4,8 +4,14 @@ from torch import nn
 import pandas as pd
 from torch.nn.utils import parameters_to_vector
 from torch.utils.data import Dataset
+from sklearn.metrics import r2_score
 from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from typing import Any, Callable
+from hashlib import sha256
+
+### CUSTOM
+from support.parsing_helpers import get_name
 
 # Used as a NaN equivalent for long data
 nan_long = -99999999
@@ -116,7 +122,7 @@ def pad_torch_stack(tensors : list[torch.Tensor], pad_with : float = torch.nan) 
     
     return new_tensors
 
-def pd_data_transformer(transform_list : tuple[tuple[list[str], Any], ...]) -> ColumnTransformer :
+def pd_data_transformer(transform_list : tuple[tuple[list[str], Callable], ...]) -> ColumnTransformer :
 
     """
     Admits a list of tuples, where each tuple represents a list of dataframe column names to be transformed 
@@ -126,13 +132,11 @@ def pd_data_transformer(transform_list : tuple[tuple[list[str], Any], ...]) -> C
     Returns:
         The desired transformer.
     """
-    
+
     transformers = []
     
     for columns, chosen_scaler in transform_list :
-        scaler_name = (chosen_scaler.__name__ if hasattr(chosen_scaler, "__name__") 
-                       else chosen_scaler.__class__.__name__)
-        transformers.append((f"{scaler_name}", chosen_scaler, columns))
+        transformers.append((get_name(chosen_scaler), chosen_scaler(), columns))
     
     return ColumnTransformer(transformers, remainder = "passthrough")
 
@@ -157,7 +161,7 @@ def dfs2train_test(df_train : pd.DataFrame, df_test : pd.DataFrame, transformer,
     
     return train, test
 
-def symlog(x : pd.DataFrame | np.ndarray | pd.Series, thresh : float = 1.0) -> pd.DataFrame | np.ndarray | pd.Series : 
+def symlog(x : np.ndarray, thresh : float = 1.0) -> np.ndarray : 
     
     return np.sign(x) * np.log1p(np.abs(x) / thresh)
 
@@ -184,6 +188,7 @@ def dfs_settings2tensors(df_train : pd.DataFrame, df_test : pd.DataFrame,
 
     """Function to convert dataframes and metadata into the correct train and test, feature and label tensors.
         MUST be deterministic. Do not use nondeterministic transformers to prevent label mismatch in metrics checking.
+        (deprecated warning due to this function only being called once in the main pipeline)
 
     Returns:
         4-tuple of tensors.
@@ -206,3 +211,121 @@ def dfs_settings2tensors(df_train : pd.DataFrame, df_test : pd.DataFrame,
     # Must remain in this order; other modules depend on it, and changing it will require refactors elsewhere
     return X_train, X_test, Y_train, Y_test
 
+def df2transform_list(df : pd.DataFrame) -> tuple[tuple[list[str], Callable], ...] :
+
+    cols2transformers = (
+    ( df.select_dtypes(include = "number").columns.tolist(), # Numeric columns
+     StandardScaler ), 
+    ( df.select_dtypes(exclude = "number").columns.tolist(), # Categorical columns
+     lambda : OrdinalEncoder(handle_unknown = "use_encoded_value", unknown_value = -1 ) ), 
+    )
+    
+    return tuple((col, transformer) for col, transformer in cols2transformers if len(col))
+
+    
+def linreg(X : np.ndarray, y : np.ndarray) -> tuple[np.ndarray, Callable[[np.ndarray], np.ndarray]] :
+
+    """Linear regression function on arbitrary dimensions
+    given data matrix of expected shape (n_samples, n_features) and observation vector of shape (n_samples, ). 
+    
+    Params:
+        X: Input feature matrix.
+        y: observation vector / labels.
+
+    Returns:
+        np.ndarray: the weight coefficients of the linear regression of expected shape (n_features + 1, )
+        Callable: the function itself, taking a np.ndarray as input and outputting a 1D flat numpy array.
+    """
+
+    if X.ndim == 1 : # For scalar arrays
+        X = X.reshape(-1, 1)
+    
+    constant_vector = np.ones((X.shape[0], 1 ))
+    A = np.hstack([X, constant_vector])
+
+    coeffs, _, _, _ = np.linalg.lstsq(A, b = y.ravel(), rcond = None)
+
+    w = coeffs[:-1].reshape(-1, 1)
+    b = coeffs[-1]
+
+    def reg_hyperplane_function(X_test : np.ndarray) -> np.ndarray :
+        
+        if X_test.ndim == 1 : # If 1D, needs to be col vector or maths breaks
+            X_test = X_test.reshape(-1, 1)
+        
+        return (X_test @ w + b).ravel() # Want coefficients as 1D for easier unpacking and use
+        
+    return coeffs.ravel(), reg_hyperplane_function # Same reason
+
+
+def linreg_calc_2d(x : np.ndarray, y : np.ndarray) -> tuple[tuple[float, float], np.ndarray, float] :
+    
+    """Performs linear regression specific to 2D, generates the predictions array over the given data and 
+    returns important statistics; the weight and bias, the y plot data, and the associated R^2 score.
+
+    Exists as a helper function for visualisation.py, but use outside of this context is perfectly acceptable.
+
+    Params:
+        x: the x-dimension. Independent variable.
+        y: the y-dimension. Dependent variable and the one to be predicted.
+
+    Returns:
+        tuple: contains the weight and bias term of the regressor.
+        np.ndarray: the NumPy predictions array - y_hat. 
+        float: the R^2 score between the predictions and the true data input y.
+    """
+         
+    (w, b), linear_regressor = linreg(x, y)
+    y_hat = linear_regressor(x)
+    R2 = r2_score(y, y_hat)
+
+    return (w, b), y_hat, R2
+
+
+def linreg_calc_3d(x : np.ndarray, y : np.ndarray, z : np.ndarray, res : int = 50,
+                   ) -> tuple[tuple[float, float, float], tuple[np.ndarray, np.ndarray, np.ndarray], float] : 
+    
+    """Performs linear regression specific to 3D, generates the surface plot over the given data and returns
+    important statistics; the two weights and the bias, the X, Y, Z surface plot matrices, and the associated R^2 score.
+    
+    Exists as a helper function for visualisation.py, but use outside of this context is perfectly acceptable.
+    
+    Params:
+        x: the x-dimension. Independent variable.
+        y: the y-dimension. Independent variable.
+        z: the z-diemnsion. Dependent variable and the one to be predicted.
+        res: number of datapoints per axis. Will use res^2 datapoints total for the surface plot. Defaults to 50.
+
+    Returns:
+        tuple: containing the weights w1 for X dimension, w2 for Y dimension and the bias term.
+        tuple: containing the surface plot matrices X, Y, Z for ideal plotting.
+        float: the R^2 score of the predicted Z values vs the true ones.
+    """
+
+    # X and Y are 2 different dimensions for the same samples, so linreg will expect them as (n, 2) feature matrix
+    xs_and_ys = np.hstack([x.reshape(-1, 1), y.reshape(-1, 1)])
+    
+    (w1, w2, b), linear_regressor = linreg(xs_and_ys, z)
+    
+    # Defining bounds - if we used datapoints risk of quadratic combinatorial detonation    
+    xrange = np.linspace(x.min(), x.max(), res)
+    yrange = np.linspace(y.min(), y.max(), res)
+    
+    X, Y = np.meshgrid(xrange, yrange)
+    
+    # Convert to 2D to fit into the prediction format, then shape back to normal after
+    prediction_surface = np.hstack([X.reshape(-1, 1), Y.reshape(-1, 1)])
+    z_hat = linear_regressor(prediction_surface) 
+    Z = z_hat.reshape(X.shape) # Refit back to the original shape. Both X and Y are equinumerous so doesn't matter which
+    R2 = r2_score(z, linear_regressor(xs_and_ys))
+    
+    return (w1, w2, b), (X, Y, Z), R2
+
+
+
+def hash_df(df : pd.DataFrame, maxlen : int = 10) -> str :
+
+    raw_str = str(df.values.astype(str).ravel().tolist())
+    hash_str = sha256(raw_str.encode("utf-8")).hexdigest()[:maxlen]
+    
+    return hash_str

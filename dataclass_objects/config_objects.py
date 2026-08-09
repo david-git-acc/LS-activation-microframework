@@ -13,8 +13,8 @@ import numpy as np
 
 # CUSTOM
 from networks import ActivationNetwork
-from support.parsing_helpers import validate_activation_df_column_names, is_hashable, smart_str, safe_asdict, get_name, extract_tuple_list
-from support.processing_helpers import sampling_indices, params2grad_vector, pad_torch_stack
+from support.parsing_helpers import validate_activation_df_column_names, is_hashable, smart_str, get_name
+from support.processing_helpers import sampling_indices, df2transform_list
 from support.plotting_helpers import get_n_colours, determine_plot_type, category2name
 from support.torch_reducers import arithmetic_mean
 
@@ -34,18 +34,14 @@ class expConfig() :
         labels: list of columns that are to be predicted from features (presumed rest)
         network_type: type of neural network to work with for the experiment and perform predictions.
         loss: loss metric to judge predictions by. 
-        feature_transforms: tuple of tuples, where the first entry of each tuple is the list of columns to be transformed,
-        and the second entry is the transformer class to apply the transformation to each of the columns.
+        feature_transforms: tuple of tuples, where the first entry of each tuple is the list of columns to be transformed, and the second entry is the transformer class to apply the transformation to each of the columns.
         label_transforms: same as feature_transforms, but for labels.
         reducers: tuple of test functions to apply on finished results to marginalise unwanted dimensions. 
         activations: tuple of all activation functions to run in the experiment.
-        kf_reducers: tuple of all aggregation functions to collapse folds over in K-fold crossvalidation, 
-        e.g mean, variance, etc over folds. Note for test data it's interpreted as 1-fold crossvalidation, and only 
-        mean is permitted for this.
+        kf_reducers: tuple of all aggregation functions to collapse folds over in K-fold crossvalidation, e.g mean, variance, etc over folds. Note for test data it's interpreted as 1-fold crossvalidation, and only mean is permitted for this.
         lr: constant learning rate. Can be changed to a variable one.
         kfold_k: number of folds to use in Kfold cross validation. 10 is the industry standard.
-        n_alphas: number of different alpha values in the range (0,1) to use for LS sensitivity testing, with uniform spacing.
-        E.g n_alphas = 5 would imply the alpha values (0.0, 0.25, 0.50, 0.75, 1.0).
+        n_alphas: number of different alpha values in the range (0,1) to use for LS sensitivity testing, with uniform spacing. E.g n_alphas = 5 would imply the alpha values (0.0, 0.25, 0.50, 0.75, 1.0).
         batch_size: size of train set used per iteration per epoch. Higher values increase gradient accuracy at the cost of time.
         max_recorded_samples: maximum number of samples to record (does not change number of epochs). Higher values create denser graphs.
         epochs: number of total training runs to apply to the neural network, where each epoch is a full pass of df_train.
@@ -54,7 +50,7 @@ class expConfig() :
         kf_reducer_names: list of display names for the aggregation functions, index-linked with kf_reducers.
         features_dtype: datatype of all features. Multiple datatypes for different features are not currently supported.
         labels_dtype: same as features_dtype but for labels.
-        categories: tuple of all categories to test over. Defaults to all of them if none selected.
+        categories: tuple of all categories to test over. Defaults to "grad"if none selected.
 
     """
     
@@ -63,12 +59,10 @@ class expConfig() :
     labels : str | list[str]
     base_network_type : type[ActivationNetwork]
     network_type : type[ActivationNetwork]
-    loss : nn.Module
-    feature_transforms : tuple[tuple[list[str], Any]]
-    label_transforms : tuple[tuple[list[str], Any]]
     activations : list[type[nn.Module]] | tuple[type[nn.Module], ...]
     reducers : tuple[Callable, ...]
     kf_reducers : tuple[Callable, ...]
+    loss : nn.Module = field(default_factory = nn.CrossEntropyLoss) # Must not preserve state!
     lr : float = 0.001
     kfold_k : int = 10
     n_alphas : int = 5
@@ -82,6 +76,10 @@ class expConfig() :
     features_dtype : torch.dtype = torch.float32
     labels_dtype : torch.dtype = torch.long
     categories : tuple[str, ...] | str = ("grad",)
+    
+    # Forced to make these init=False so they appear in asdict(), so evaluation functions don't have empty transform lists
+    feature_transforms : tuple[tuple[list[str], Callable], ...] = field(init = False)
+    label_transforms : tuple[tuple[list[str], Callable], ...] = field(init = False)
     
     def __post_init__(self) :
         
@@ -107,8 +105,13 @@ class expConfig() :
         self.activation_names = validate_activation_df_column_names(self.activations, self.activation_names)
         self.kf_reducer_names = validate_activation_df_column_names(self.kf_reducers, self.kf_reducer_names)
         
+        # Transforms convert data into numeric components so NNs can work with them
+        self.features = [col for col in self.df_train.columns if col not in set(self.labels)]
+        self.feature_transforms = df2transform_list(self.df_train[self.features])
+        self.label_transforms = df2transform_list(self.df_train[self.labels])
+                
         # Mean is non-optional for expConfig, we need it for when we collect results over test data
-        if "arithmetic_mean" not in {get_name(f) for f in self.kf_reducers } : # Use this since funcs have no ==
+        if "mean" not in self.kf_reducer_names :
             self.kf_reducer_names.append("mean")
             self.kf_reducers += (arithmetic_mean, )
         
@@ -130,8 +133,7 @@ class expConfig() :
         """
         
         # Salt added on end
-        strformat = str([ smart_str(v) if is_hashable(v) else smart_str(get_name(v))
-                         for v in self.__dict__.values() ])
+        strformat = str([ smart_str(v) if is_hashable(v) else smart_str(get_name(v)) for v in self.__dict__.values() ])
         as_str = json.dumps(strformat + "you and I, (nothing comes easy) * 2", sort_keys = True).encode() 
         
         hash_monstrosity = hashlib.sha256(as_str).hexdigest()
@@ -145,7 +147,7 @@ class expConfig() :
         
         return "experiments/exp-" + readable_metadata + "-" + hash_monstrosity[:maxlen] 
     
-    def exp_vis_params(self) -> expVisual :
+    def generate_expvisual(self) -> expVisual :
         
         """
         Generates the visual parameters dataclass for this activation function. 
@@ -253,7 +255,7 @@ class expVisual() :
             case "layers" :
                 return list(range(self.experiment.dummy.n_activations))
             case _ :
-                return []
+                return [[], "Do you know what I'm talking about? The matrix? Do you want to know, what it is?"].pop(0)
     
     def generate_axes_params(self, reducer : str, fig_params : dict[str, Any], nskip: int = 5) -> dict[str, Any] :
         
@@ -271,7 +273,7 @@ class expVisual() :
             Dictionary of parameters for the given axes object.
         """
         
-        reducer_title = f"{fig_params["category"]} {reducer}".title()
+        reducer_title = f"{fig_params['category']} {reducer}".title()
         
         match fig_params["plot_type"] :
             case "curve" :  # Remove the "s", e.g "epochs" -> "epoch", "params" -> "param"

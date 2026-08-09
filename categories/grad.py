@@ -38,8 +38,9 @@ def post_experiment_test_grad(ti : testInput) -> pd.DataFrame :
     Params:
         ti: testInput dataclass. See the type annotation for more information on required parameters for it. 
         
-    NOTE: This function is the main function for post experiment testing; testloss and testpreds rely on this one. Also,
-    remember that the last dimension must always be the kfold dimension, or bugs will occur - silently or not.
+    NOTE: This function is the main function for post experiment testing; testloss, testpreds and others rely on this one.
+    Therefore, if you make any changes here, be prepared for ripple effects in other categories since they call this function. 
+    Also, remember that the last dimension must always be the kfold dimension, or bugs will occur - silently or not.
 
     Returns:
         result_df: Pandas dataframe containing results. Each column is a different agg-type test-type combination.

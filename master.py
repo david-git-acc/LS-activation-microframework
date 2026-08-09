@@ -1,34 +1,30 @@
-from sklearn.preprocessing import StandardScaler, OrdinalEncoder
-from networks import ShortNetwork, DiamondNetwork
 from dataclass_objects.config_objects import expConfig
 from torch import nn
-from dataclasses import replace
 
 # CUSTOM
-from visualisation import plot_activation_tests, plot_time2threshold_tests
+from visualisation import plot_activation_tests, plot_time2threshold_tests, plot_df_features
 from support.config import config
 from support.parsing_helpers import safe_dict2params
-from support.plotting_helpers import df2csv
 from activation_testing.general import complete_activation_test, LS_alpha_sensitivity_test, complete_time2threshold_test
 
-# Separate numeric columns for different preprocessing
-numeric_columns = config["df"].select_dtypes(include = "number").columns.tolist()
-nonnumerics = [col for col in config["df"].columns if col not in set(numeric_columns)]
-
-# Because train columns will always be numeric and test column always nonnumeric, we don't need to manually define both lists
-feature_transforms = ( (numeric_columns, StandardScaler()), )
-label_transforms = ( (nonnumerics, OrdinalEncoder(handle_unknown = "use_encoded_value", unknown_value = -1)), )
-
-experiment_params = expConfig(
-                        loss = nn.CrossEntropyLoss(),
-                        feature_transforms = feature_transforms,
-                        label_transforms = label_transforms,
-                        **safe_dict2params(config, expConfig),
-                    )
-
+experiment_params = expConfig(**safe_dict2params(config, expConfig))
 
 results = complete_activation_test(experiment_params, verbose = True)
-thresh_results = complete_time2threshold_test(results, 50, ascending = True)
+
+coords_df = results.coords2features([("train", "grad", "mean"), ("test", "agrad", "mean")], measure_type = "epochs",
+                                    preserve_coord_orgnames = True)
+
+coords_df2 = results.coords2features([("train", "grad", "mean"), ("test", "testloss", "testloss"), 
+                                     ("test", "testpreds", "mean")], measure_type = "epochs", preserve_coord_orgnames = False)
+
+coords_df3 = results.coords2features([("train", "aouts", "mean"), ("test", "ls", "mean")], measure_type = "layers", 
+                                     preserve_coord_orgnames = False)
+
+plot_df_features(coords_df, experiment_params, "scatter")
+plot_df_features(coords_df2, experiment_params, "scatter")
+plot_df_features(coords_df3, experiment_params, "kde")
+
+thresh_results = complete_time2threshold_test(results, 50)
 
 plot_activation_tests(results, experiment_params, verbose = False)
 plot_time2threshold_tests(thresh_results, experiment_params)

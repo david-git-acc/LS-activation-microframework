@@ -4,7 +4,7 @@ from typing import Callable
 import torch
 ### CUSTOM
 from dataclass_objects.input_objects import expInput
-from dataclass_objects.result_objects import experimentResult, activationResults
+from dataclass_objects.result_objects import ExperimentResult, ActivationResults
 from categories.base_definitions import categoryExperimentTracker
 
 from categories.grad import *
@@ -38,6 +38,7 @@ class categoryParams() :
     tracker : type[categoryExperimentTracker]
     tester : Callable
     measure_types : tuple[str, ...] = ()
+    should_increase : bool = True
     
 
 @dataclass 
@@ -94,14 +95,14 @@ class categoryExperimentLogger() :
             tracker.record(record_index)
 
     @property
-    def result(self) -> experimentResult :
-        """Shorthand for returning the appropriate experimentResult object after concluding the experiment, 
+    def result(self) -> ExperimentResult :
+        """Shorthand for returning the appropriate ExperimentResult object after concluding the experiment, 
         to be passed down to other functions and methods.
 
         Returns:
-            experimentResult: class encapsulating all values in its .results dictionary.
+            ExperimentResult: class encapsulating all values in its .results dictionary.
         """
-        return experimentResult(self.data)
+        return ExperimentResult(self.data)
     
 
 # When adding any new category, please instantiate and specify all parameters here to avoid data redundancy
@@ -109,36 +110,43 @@ class categoryExperimentLogger() :
 category_registry : dict[str, categoryParams] = {
     "grad" : categoryParams(name = "grad", 
                             measure_types = ("epochs", "params"),
+                            should_increase = False,
                             tracker = gradExperimentTracker,
                             tester = post_experiment_test_grad
                             ),
     "testloss" : categoryParams(name = "testloss", 
                                 measure_types = ("epochs",),
+                                should_increase = False,
                                 tracker = testlossExperimentTracker,
                                 tester = post_experiment_test_testloss
                                 ),
     "testpreds" : categoryParams(name = "testpreds", 
                                  measure_types = ("epochs", "test_samples"),
+                                 should_increase = True,
                                  tracker = testpredsExperimentTracker,
                                  tester = post_experiment_test_testpreds
                                  ),
     "metrics" : categoryParams(name = "metrics",
                               measure_types = ("epochs", ),
+                              should_increase = True,
                               tracker = metricsExperimentTracker,
                               tester = post_experiment_test_metrics
                               ),
     "agrad" : categoryParams(name = "agrad",
                              measure_types = ("epochs", "layers", "neurons"), 
+                             should_increase = False,
                              tracker = agradExperimentTracker,
                              tester = post_experiment_test_agrad
                              ),
     "aouts" : categoryParams(name = "aouts",
                              measure_types = ("epochs", "layers", "neurons"), 
+                             should_increase = True,
                              tracker = aoutsExperimentTracker,
                              tester = post_experiment_test_aouts
                              ),
     "ls" : categoryParams(name = "ls",
                           measure_types = ("epochs", "layers"),
+                          should_increase = False,
                           tracker = lsExperimentTracker,
                           tester = post_experiment_test_ls
                           ),

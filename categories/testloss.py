@@ -39,5 +39,5 @@ def post_experiment_test_testloss(ti : testInput) -> pd.DataFrame :
         results_df: dataframe of results. Each column is a different agg-type.
     """
     
-    return post_experiment_test_grad(replace(ti, reducers = (donothing_dummy, ), reducer_names = ["test loss"], 
+    return post_experiment_test_grad(replace(ti, reducers = (donothing_dummy, ), reducer_names = ["testloss"], 
                                              expected_ndims = 1, measure_type = "epochs"))

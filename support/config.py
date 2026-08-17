@@ -5,7 +5,8 @@ from typing import Any, Callable
 import yaml
 import random
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, matthews_corrcoef, balanced_accuracy_score, r2_score
+from sklearn.metrics import (accuracy_score, matthews_corrcoef, balanced_accuracy_score, r2_score, 
+                             precision_score, recall_score, f1_score)
 from torch import nn
 
 ### CUSTOM
@@ -26,11 +27,12 @@ function_registry : dict[str, Callable] = {
     "balanced_accuracy" : balanced_accuracy_score,
     "mcc" : matthews_corrcoef,
     "r2" : r2_score,
+    "precision" : lambda y_true, y_pred : precision_score(y_true, y_pred, average = "weighted", zero_division = 0), 
+    "recall" : lambda y_true, y_pred : recall_score(y_true, y_pred, average = "weighted"), 
+    "f1" : lambda y_true, y_pred : f1_score(y_true, y_pred, average = "weighted")
 }
 
-
-# Necessary. Activations must always be passed as CLASSES, not as instances
-
+# Necessary. Activations must always be passed as CLASSES, not as instances to prevent state duplication
 activation_registry : dict[str, type[nn.Module]] = {
     "iplo" : IPLo,
     "tanh" : nn.Tanh,
@@ -53,8 +55,12 @@ network_mod_registry : dict[str, Callable] = {
     "residual" : to_residual,
 }
 
-def import_config(config_saveloc : str = "config.yaml",
-                  csv_filename : str = "datasets/extended_flower_morphometrics.csv") -> dict[str, Any] :
+dataset_registry : dict[str, Callable[[], pd.DataFrame]] = {
+    "penguins" : lambda : pd.read_csv("datasets/penguins.csv").iloc[:, 1:], # First column is redundant, drop it
+    "flowers" : lambda : pd.read_csv("datasets/extended_flower_morphometrics.csv"), 
+}
+
+def import_config(config_saveloc : str = "config.yaml") -> dict[str, Any] :
 
     """Main function to import and define the config.yaml in its intended format. Must not be modified outside of
     config.py.
@@ -70,8 +76,14 @@ def import_config(config_saveloc : str = "config.yaml",
     with open(config_saveloc, "r") as f :
         config = yaml.safe_load(f)
 
-    df = pd.read_csv(csv_filename).head(5000) # Size limit for reasonable comp speeds. No need to keep if you have more time
-    
+    df = dataset_registry[config["dataset"]]().head(5000) # Size limit for reasonable comp speeds. No need to keep if you have more time
+
+    if not isinstance(config["labels"], list) :
+        config["labels"] = [ config["labels"] ] # Must be a list of strings for pandas consistency
+
+    if config["features"] == "all" :
+        config["features"] = [col for col in df.columns if col not in set(config["labels"])]
+
     # Every dataset has its own cleaning requirements. Not possible to make a one-size-fits-all cleaner so this is my fallback
     df = df[config["features"] + config["labels"]].dropna(how = "any").reset_index(drop=True)
     df_train, df_test = train_test_split(df, test_size = config["test_size"])
@@ -195,4 +207,4 @@ def set_seed(seed : int) -> None :
     
     
 # Technically, config impacts global state by setting default seed, but given the use-case this is acceptable
-config = import_config("config.yaml", csv_filename = "datasets/extended_flower_morphometrics.csv" ) 
+config = import_config("config.yaml") 

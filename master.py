@@ -20,9 +20,13 @@ coords_df2 = results.coords2features([("train", "grad", "mean"), ("test", "testl
 coords_df3 = results.coords2features([("train", "aouts", "mean"), ("test", "ls", "mean")], measure_type = "layers", 
                                      preserve_coord_orgnames = False)
 
+coords_df4 = results.coords2features([("train", "testloss", "testloss"), ("test", "testpreds", "mean")], measure_type = "epochs", 
+                                     preserve_coord_orgnames = True)
+
 plot_df_features(coords_df, experiment_params, "scatter")
 plot_df_features(coords_df2, experiment_params, "scatter")
 plot_df_features(coords_df3, experiment_params, "kde")
+plot_df_features(coords_df4, experiment_params, "scatter")
 
 thresh_results = complete_time2threshold_test(results, 50)
 

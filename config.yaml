@@ -1,48 +1,39 @@
-epochs: 500
-test_size: 0.2
-seed: 42
-n_testseeds: 2
-kfold_k: 2
-lr: 0.005
-batch_size: -1
-max_recorded_samples: 56
-n_alphas: 5
-network_type: diamond
+dataset: flowers # [flowers, penguins]
+network_type: diamond # [diamond, short]
+epochs: 500 # any positive integer
+test_size: 0.2 # any float between 0 and 1 non-inclusive 
+seed: 42 # any integer 
+n_testseeds: 10 # any positive integer
+kfold_k: 10 #  any positive integer 
+lr: 0.005 # any positive real number 
+batch_size: -1 # [-1] U any positive integer
+max_recorded_samples: 56 # any positive integer 
+n_alphas: 5 # any positive integer
+features: all # [all] U dataset columns
+labels: species # dataset columns
 
-features: 
-  - sepal_length_cm
-  - sepal_width_cm
-  - petal_length_cm
-  - petal_width_cm
-  - stem_thickness_mm
-  - petal_density_pct
-  - chlorophyll_index
-  - native_altitude_m
-
-labels: 
-  - species
-
-activations: 
+activations: # [Tanh, IPLo, ReLU] - add more in config.py
   - Tanh
+  - IPLo
   - ReLU
 
-eval_metrics: 
-  - accuracy
-  - balanced_accuracy
+eval_metrics: # see list of all allowed metrics in config.py
+  - precision
+  - recall
+  - f1
   - mcc
-  - r2
 
-reducers: 
+reducers: # see list of all allowed reducers in config.py
   - log_average
   - mean
   - stdeviation
   - norm
 
-kf_reducers:
+kf_reducers: # in config.py
   - mean
   - stdeviation
 
-categories:
+categories: # [grad, testloss, testpreds, metrics, agrad, aouts, ls] - add more in categories folder
   - grad
   - testloss
   - testpreds
@@ -51,7 +42,7 @@ categories:
   - aouts
   - ls
 
-activation_mods:
+activation_mods: # LS only as activation mods
   Tanh:
      LS:
       alpha: 0.25
@@ -61,7 +52,7 @@ activation_mods:
       alpha: 0.20
       learnable: false
 
-network_mods:
+network_mods: # [batchnorm, layernorm, dropout, residual]
   diamond:
     batchnorm: true
     dropout:

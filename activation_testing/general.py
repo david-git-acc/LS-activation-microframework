@@ -235,4 +235,3 @@ def complete_time2threshold_test(aresults : ActivationResults,
             progress.advance(thresh_work, 1)    
 
     return time2threshold_dict
-

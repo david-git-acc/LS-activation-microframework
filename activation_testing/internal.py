@@ -234,9 +234,22 @@ def multiseed_test_from_df(df_train : pd.DataFrame, df_test : pd.DataFrame, mode
     return exp_result
     
     
+def evaluate_activation_results(xpc : expConfig, exp_result : ExperimentResult,
+                                tester : Callable[[testInput], pd.DataFrame], typeof_result : tuple[str, ...]
+                                ) -> pd.DataFrame : 
+    
+    """Main testing function on experimental results. Given the experiment configuration, result, tester and the
+    result metadata, calculate the test results and return as a Pandas DataFrame object.
 
-def evaluate_activation_results(xpc : expConfig, exp_result : ExperimentResult, tester : Callable,
-                            typeof_result : tuple[str, ...]) -> pd.DataFrame : 
+    Params:
+        xpc: expConfig dataclass containing all experiment metadata including the relevant reducers for extracting the DF.
+        exp_result: experimentResult dataclass containing the results of the experiment.
+        tester: the function to test the result with. Must return a DataFrame.
+        typeof_result: tuple containing eval_type, category and measure_type information to perform the corresponding test.
+
+    Returns:
+        DataFrame: DataFrame of test results. 
+    """
     
     # Unpack the metadata components from the type of result we have 
     eval_type, category, measure_type = typeof_result
@@ -265,5 +278,3 @@ def evaluate_activation_results(xpc : expConfig, exp_result : ExperimentResult, 
 
     results_df = tester(test_input) 
     return results_df
-
-

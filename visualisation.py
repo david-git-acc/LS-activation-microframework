@@ -356,8 +356,8 @@ def plot_df_features(coord_df : pd.DataFrame, xpc : expConfig, plot_type : str =
     """
     
     xvp = xpc.generate_expvisual() 
-    all_activations = coord_df.columns.get_level_values(0).unique().tolist()
-    all_coords = coord_df.columns.get_level_values(1).unique().tolist()
+    all_activations : list[str] = coord_df.columns.get_level_values(0).unique().tolist()
+    all_coords : list[str] = coord_df.columns.get_level_values(1).unique().tolist()
     
                                                         # "_" is my face when having to write hash code
     df_name = "-".join([act_name[0] for act_name in all_activations]) + "_" + hash_df(coord_df, maxlen = 10)
@@ -389,6 +389,9 @@ def plot_df_features(coord_df : pd.DataFrame, xpc : expConfig, plot_type : str =
                 
         activation_coords = coord_df[activation] # Exact category is irrelevant here, so "grad" as placeholder
         plot_params = xvp.generate_plot_params(activation, "grad", "mean", plot_type)
+        
+        print(coord_names)
+        print(activation_coords.columns)
         
         # Must be strictly NumPy arrays or the regression code can fail
         x = activation_coords[coord_names[0]].to_numpy()

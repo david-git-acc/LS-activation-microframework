@@ -389,9 +389,7 @@ def plot_df_features(coord_df : pd.DataFrame, xpc : expConfig, plot_type : str =
                 
         activation_coords = coord_df[activation] # Exact category is irrelevant here, so "grad" as placeholder
         plot_params = xvp.generate_plot_params(activation, "grad", "mean", plot_type)
-        
-        print(coord_names)
-        print(activation_coords.columns)
+
         
         # Must be strictly NumPy arrays or the regression code can fail
         x = activation_coords[coord_names[0]].to_numpy()

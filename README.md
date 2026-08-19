@@ -1,15 +1,8 @@
 # LS-microframework; a project for testing activations 
-I created this project as the main testing program for my interests in LS-activations, a subset of the custom S-family of activations (also defined by me)
-satisfying specific criteria that in theory, make them optimal across the 7 categories that I've defined in the framework. This framework was constructed to
-solve the problem of standard research scripts requiring manual reevaluation for each category, measure type (e.g over epochs, layers, neurons) and train/test
-combination as well as visualisation. Given the sheer number of these cases, such a script would not be practical for my purposes, so I built this expandable 
-program to deal with all of them and also flexibly allow any new combinations I might want to add in the future.
+I created this project as the main testing program for my interests in LS-activations, a subset of the custom S-family of activations (also defined by me) satisfying specific criteria that in theory, make them optimal across the 7 categories that I've defined in the framework. This framework was constructed to solve the problem of standard research scripts requiring manual reevaluation for each category, measure type (e.g over epochs, layers, neurons) and train/test combination as well as visualisation. Given the sheer number of these cases, such a script would not be practical for my purposes, so I built this expandable program to deal with all of them and also flexibly allow any new combinations I might want to add in the future.
 
 Note that I won't be sharing details of the S activation family in preparation for my future work on the subject area, but LS will be defined later in this readme.
 
-The primary program flow is simply to convert the config.yaml file inputs into a subfolder within experiments, generate the needed PDF visualisations and indexed data
-CSVs of all described tests, using the prescribed networks and activations from the user in a reasonable time. Almost any justification for any part of the program code
-can be reduced to this or a subset of this motivation. The only additional component is the ability to compare results from different categories, evaluation types
-or aggregators after the completion of an experiment; this was needed to allow greater flexibility for any user and myself to help uncover any latent correlations.
+The primary program flow is simply to convert the config.yaml file inputs into a subfolder within experiments, generate the needed PDF visualisations and indexed data CSVs of all described tests, using the prescribed networks and activations from the user in a reasonable time. Almost any justification for any part of the program code can be reduced to this or a subset of this motivation. The only additional component is the ability to compare results from different categories, evaluation types or aggregators after the completion of an experiment; this was needed to allow greater flexibility for any user and myself to help uncover any latent correlations.
 
 ## Folder-space overview

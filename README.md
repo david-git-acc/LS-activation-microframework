@@ -10,6 +10,16 @@ The primary program flow is simply to convert the config.yaml file inputs into a
 
 Also note that this framework uses custom logging, and using external libraries for this purpose is neither necessary nor desirable. Logging and tracking code and details can be found in categories/ folder, specifically under base_definitions.py and category_registry.py.
 
+## How to run
+Use the following steps. This is a Windows repository, but assuming you have pip and Python 3.13 installed, it should theoretically work on any computer.
+
+1. Download the repository in the file location of your choice.
+2. (Optional) Create a virtual environment, e.g "venv" and enter it. If you already have all required modules imported, this is unnecessary.
+3. In your preferred environment, run `pip install -r requirements.txt`.
+4. (Optional) Having read this README and any documentation you wish, customise master.py to do whatever you want it to do. The current instructions already perform much of the intended functionality, but you can also run sensitivity tests or other feature tests if you wish.
+5. (Optional) Modify config.yaml to accept any choice of hyperparameters you wish that fall within the accepted domains. Alternatively, leave it as is. 
+6. Run master.py and wait. Once completed, it will generate a folder with name "exp-(network-name)-(initials of activations used)-(hash signature), with all desired results (as .csv file) and figures (as .pdf files).
+
 ## Folder-space overview
 The project is divided into several static and dynamic folders/subfolders. 
 

@@ -2,7 +2,7 @@
 <img width="794" height="450" alt="image" src="https://github.com/user-attachments/assets/d3e5a953-1502-42cb-a0e3-d32938f11ffe" />
 I created this project as the main testing program for my interests in LS-activations, a subset of the custom S-family of activations (also defined by me) satisfying specific criteria that in theory, make them optimal across the 7 categories that I've defined in the framework. This framework was constructed to solve the problem of standard research scripts requiring manual reevaluation for each category, measure type (e.g over epochs, layers, neurons) and train/test combination as well as visualisation. Given the sheer number of these cases, such a script would not be practical for my purposes, so I built this expandable program to deal with all of them and also flexibly allow any new combinations I might want to add in the future.
 
-For ease of practicality, the framework currently only supports multiple classification targets with arbitrary features and a finite number of $|C|$ classes. This allows me to use cross-entropy loss and famous classification-specific evaluators like Precision, Recall and F1, which do not have Sklearn or Numpy-native regressor implementations. There is nothing in theory preventing the framework from being expanded to regressors, but it is just not the focus of this framework. 
+For ease of practicality, the framework currently only supports a single classification label (despite labels) with arbitrary features and a finite number of $|C|$ classes. This allows me to use cross-entropy loss and famous classification-specific evaluators like Precision, Recall and F1, which do not have Sklearn or Numpy-native regressor implementations. There is nothing in theory preventing the framework from being expanded to regressors, but it is just not the focus of this framework. 
 
 Note that I won't be sharing details of the S activation family in preparation for my future work on the subject area, but LS will be defined later in this readme.
 
@@ -20,6 +20,30 @@ Use the following steps. This is a Windows repository, but assuming you have pip
 5. (Optional) Modify config.yaml to accept any choice of hyperparameters you wish that fall within the accepted domains. Alternatively, leave it as is.
 6. Add all datasets you want to test with to the datasets folder, and then assign them a name and their file location in config.py so the program can access it.
 7. Run master.py and wait. Once completed, it will generate a folder with name "exp-(network-name)-(initials of activations used)-(hash signature), with all desired results (as .csv file) and figures (as .pdf files).
+
+## How to use config.yaml
+The config.yaml is the main point of entry for using the framework. In it, you can specify the customisable hyperparameters as you desire, or modify the code to implement your own. The following hyperparameters are available for customisation:
+
+**dataset**: the dataset you want to use. Make sure it exists in the datasets/ folder, and include a name for the dataset and the link in config.py dataset registry.
+**network_type**: type of network you want to use. Current choices are "short" and "diamond".
+**epochs**: number of training epochs. Same regardless of batch size. Must be a positive integer.
+**test_size**: fraction between 0 and 1 of the data to use as test data, e.g 0.20. Must be in (0, 1).
+**seed**: random seed to use. Positive integer only.
+**n_testseeds**: number of test seeds to use in seed marginalisation testing, which is used to average results on train/test data experiments. Increasing this will increase training time. Ideally 10 is a good choice. Must be a positive integer.
+**kfold_k**: number of folds to use in K-Fold cross validation for train data. Must be a positive integer, presumably 10. Increasing this will also increase train time.
+**lr**: learning rate. Ideally a very small positive number close to 0, e.g 0.005. Must be a positive float.
+**batch_size**: number of samples to use in a single minibatch within a given epoch. Either a positive integer, or -1 for full batch.
+**max_recorded_samples**: how many epochs you want to record for results, since recording all is computationally and visually impractical. Must be positive integer.
+**n_alphas**: How many different alpha intervals within (0,1) to use for testing LS-activations via LS-alpha-sensitivity-test. Must be positive integer.
+**features**: the list of features to use for predicting labels. Alternatively, use "all" to select all non-label columns to be used as features.
+**labels**: the column for the label. Technically "labels" implies plural, but it's there to indicate that multiclass classification is permitted. Must be a string.
+**activations**: list of activation functions to compare. At least 1. Currently supports Tanh, ReLU and IPLo, but can add new ones in activation_registry in config.py. 
+**eval_metrics**: list of functions of the shape `f(y_true, y_pred)` to use for evaluating results in the "metrics" category. If not using metrics, can ignore this.
+**reducers**: list of aggregation functions to collapse all dimensions except the measure type and the KFold dimension by, once per function. 
+**kf_reducers**: list of aggregation functions to collapse the KFold dimension by, once per function.
+**categories**: list of categories to examine data on. Supported categories are [grad, testloss, testpreds, metrics, agrad, aouts, ls].
+**activation_mods**: modifications to make to each activation. Use the name of the activation, then the modifications. Examples provided in the default config.yaml.
+**network_mods**: modifications to make to each network. Use the name of the network, then the modifications. Examples provided in the default config.yaml. 
 
 ## Folder-space overview
 The project is divided into several static and dynamic folders/subfolders. 
@@ -159,7 +183,7 @@ Full set of reducers, e.g variance, standard deviation, mean, log_average, norm,
 Stores all datasets for the framework. Each one must have a registry mapping dataset string names to the file links in config.py. Left empty in this repository to avoid bloating the file size, which would prevent me from adding any more commits. 
 
 ### experiments
-Stores all experiments as folders with unique names for their configurations, e.g: "exp-Skip3-Drop20-BN-Diamond-L_L_R-9a6c9d54c3". Each experiment folder is divided into the csvs and figures folders, and then from there into featuers and threshold_tests. 
+Stores all experiments as folders with unique names for their configurations, e.g: "exp-Skip3-Drop20-BN-Diamond-L_L_R-9a6c9d54c3". Each experiment folder is divided into the csvs and figures folders, and then from there into features and threshold_tests. 
 
 ### Top-level programs
 #### activations.py

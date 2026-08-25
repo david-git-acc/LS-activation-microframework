@@ -1,6 +1,8 @@
 # LS-microframework; a project for testing activations 
 <img width="794" height="450" alt="image" src="https://github.com/user-attachments/assets/d3e5a953-1502-42cb-a0e3-d32938f11ffe" />
-Given a YAML configuration config.yaml, automatically produces an experiment folder containing all requested figures, CSVs, feature and threshold data across 7 categories in a config-to-results data pipeline. The goal is to compare activation functions across the categories visually, statistically but most importantly automatically and reproducibly. 
+
+Given a YAML configuration config.yaml, automatically produces an experiment folder containing all requested figures, CSVs, feature and threshold data across 7 categories in a config-to-results data pipeline. The goal is to compare activation functions across the categories visually, statistically but most importantly automatically and reproducibly.
+
 
 I created this project as the main testing program for my interests in LS-activations, a subset of the custom S-family of activations (also defined by me) satisfying specific criteria that in theory, make them optimal across the 7 categories that I've defined in the framework. This framework was constructed to solve the problem of standard research scripts requiring manual reevaluation for each category, measure type (e.g over epochs, layers, neurons) and train/test combination as well as visualisation. Given the sheer number of these cases, such a script would not be practical for my purposes, so I built this expandable program to deal with all of them and also flexibly allow any new combinations I might want to add in the future.
 
